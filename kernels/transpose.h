@@ -10,4 +10,4 @@
 
 #include "utils.h"
 
-void launch_mat_transpose_kernel(float* A, float* C, int numRows, int numCols);
+void launch_mat_transpose_kernel(float* A, float* C, int numPrefix, int numRows, int numCols, int numSuffix);

@@ -13,6 +13,7 @@
 
 #include "utils.h"
 #include "kernels/add.h"
+#include "kernels/transpose.h"
 
 namespace py = pybind11;
 
@@ -37,6 +38,29 @@ struct Tensor { // native CUDA memory
         }
 
         delete[] shape;
+    }
+
+    std::unique_ptr<Tensor> tranpose(int dim1, int dim2) const {
+        int prefixDim = 1;
+        if (0 < dim1) { for (int d=0; d<dim1; d++) { prefixDim *= this->shape[d]; } }
+        int suffixDim = 1;
+        if (dim2+1 < ndim) { for (int d=dim2+1; d<ndim; d++) { suffixDim *= this->shape[d]; } }
+
+        int* newShape = new int[ndim];
+        for (int d=0; d<ndim; d++) { newShape[d] = this->shape[d]; }
+        int buf = newShape[dim1];
+        newShape[dim1] = newShape[dim2];
+        newShape[dim2] = buf;
+
+        std::unique_ptr<Tensor> out = std::make_unique<Tensor>(
+            this->size,
+            newShape,
+            this->ndim
+        );
+
+        launch_mat_transpose_kernel(this->data, out->data, prefixDim, this->shape[dim1], this->shape[dim2], suffixDim);
+
+        return out; 
     }
 
     static std::unique_ptr<Tensor> add(const Tensor* a, const Tensor* b) {
@@ -160,7 +184,7 @@ PYBIND11_MODULE(candle, m, py::mod_gil_not_used()) {
                     int* shape = nullptr;
 
                     int ndim = get_ndim_nested_list(data_list);
-                    shape = (int*)malloc(ndim * sizeof(int));
+                    shape = new int[ndim];
 
                     int size = get_shape_nested_list(data_list, shape);
 
@@ -197,6 +221,13 @@ PYBIND11_MODULE(candle, m, py::mod_gil_not_used()) {
             )
 
             .def(py::self + py::self) // + operator
+
+            .def(
+                "transpose",
+                &Tensor::tranpose,
+                py::arg("dim1"),
+                py::arg("dim2")
+            )
             
             .def("__repr__", [](const Tensor& tensor) {
                 std::vector<float> host_data(tensor.size);
