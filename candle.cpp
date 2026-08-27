@@ -115,30 +115,29 @@ struct Tensor { // native CUDA memory
 
 
     static std::unique_ptr<Tensor> matmul(const Tensor* a, const Tensor* b) {
-        if (a->shape[a->ndim-1] != b->shape[0]) {
+
+        if (a->shape[a->ndim-1] != b->shape[b->ndim-2]) {
             throw std::invalid_argument("Dimensions must line up for matmul");
         }
 
-        int a_rows = 1; // collapse for matmul (or expand if a is 1 dim)
-        if (a->ndim > 1) { for (int d=0; d < a->ndim-1; d++) { a_rows *= a->shape[d]; } }
-        int b_cols = 1; // collapse for matmul (or expand if b is 1 dim)
-        if (b->ndim > 1) { for (int d=1; d < b->ndim; d++) { b_cols *= b->shape[d]; } }
+        int batch_dim = 1; // collapse for matmul (or expand if a is 1 dim)
+        if (a->ndim > 1) { for (int d=0; d < a->ndim-2; d++) { a_rows *= a->shape[d]; } }
+        int batch_dim = 1; // collapse for matmul (or expand if b is 1 dim)
+        if (b->ndim > 1) { for (int d=0; d < b->ndim-2; d++) { b_cols *= b->shape[d]; } }
 
-        int* newShape = new int[a->ndim-1 + b->ndim-1];
+        int* newShape = new int[a->ndim];
         for (int d=0; d < a->ndim-1; d++) {
             newShape[d] = a->shape[d];
         }
-        for (int d=1; d < b->ndim; d++) {
-            newShape[a->ndim-2+d] = b->shape[d];
-        }
+        newShape[b->ndim-1] = b->shape[b->ndim-1];
 
         std::unique_ptr<Tensor> out = std::make_unique<Tensor>(
             a_rows*b_cols,
             newShape,
-            a->ndim-1 + b->ndim-1
+            a->ndim
         );
 
-        launch_mat_mul_kernel(a->data, b->data, out->data, a_rows, b->shape[0], b_cols);
+        launch_mat_mul_kernel(a->data, b->data, out->data, batch_dim, a->shape[a->ndim-2], a->shape[a->ndim-1], b->shape[b->ndim-1]);
 
         return out;
     }
