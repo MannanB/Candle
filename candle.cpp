@@ -115,15 +115,38 @@ struct Tensor { // native CUDA memory
 
 
     static std::unique_ptr<Tensor> matmul(const Tensor* a, const Tensor* b) {
+        int batch_size_A = 1;
+        int batch_size_B = 1;
+        int A_rows = 1;
+        int A_cols = 1;
+        int B_rows = 1;
+        int B_cols = 1;
 
-        if (a->shape[a->ndim-1] != b->shape[b->ndim-2]) {
-            throw std::invalid_argument("Dimensions must line up for matmul");
+        // autmatic expansion
+
+        if (a->ndim == 1) {
+            A_rows = a->shape[0];
+        } else { 
+            A_rows = a->shape[a->ndim-2];
+            A_cols = a->shape[a->ndim-1];
+            if (a->ndim > 2) { for (int d=0; d < a->ndim-2; d++) { batch_size_A *= a->shape[d]; } }
+        }
+        if (b->ndim == 1) {
+            B_cols = b->shape[0];
+        } else { 
+            B_rows = b->shape[b->ndim-2];
+            B_cols = b->shape[b->ndim-1];
+            if (b->ndim > 2) { for (int d=0; d < b->ndim-2; d++) { batch_size_B *= b->shape[d]; } }
         }
 
-        int batch_dim = 1; // collapse for matmul (or expand if a is 1 dim)
-        if (a->ndim > 1) { for (int d=0; d < a->ndim-2; d++) { a_rows *= a->shape[d]; } }
-        int batch_dim = 1; // collapse for matmul (or expand if b is 1 dim)
-        if (b->ndim > 1) { for (int d=0; d < b->ndim-2; d++) { b_cols *= b->shape[d]; } }
+
+        if (A_cols != B_rows) {
+            throw std::invalid_argument("Dimensions must line up for matmul");
+        }
+        if (batch_size_A != batch_size_B) {
+            throw std::invalid_argument("Batch sizes must be same");
+        }
+
 
         int* newShape = new int[a->ndim];
         for (int d=0; d < a->ndim-1; d++) {
@@ -137,7 +160,7 @@ struct Tensor { // native CUDA memory
             a->ndim
         );
 
-        launch_mat_mul_kernel(a->data, b->data, out->data, batch_dim, a->shape[a->ndim-2], a->shape[a->ndim-1], b->shape[b->ndim-1]);
+        launch_mat_mul_kernel(a->data, b->data, out->data, batch_size_A, A_rows, A_cols, B_rows);
 
         return out;
     }
