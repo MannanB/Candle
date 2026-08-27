@@ -11,18 +11,7 @@ import candle
 
 tensor1 = candle.Tensor([[1, 2, 3], [4, 5, 6], [7, 8, 9], [10, 11, 12]])
 tensor2 = candle.Tensor([[1, 2, 3], [5, 5, 5], [7, 7, 7], [10, 11, 12]])
-tensor5 = candle.Tensor(
-    [
-        [
-            [
-                [p * 48 + r * 16 + c * 4 + s + 1 for s in range(4)]
-                for c in range(4)
-            ]
-            for r in range(3)
-        ]
-        for p in range(2)
-    ]
-)
+tensor5 = candle.Tensor.uniform([2,3,4,5])
 
 print(tensor1.shape)
 print("\n---addition---\n")
@@ -41,3 +30,11 @@ print(tensor6.shape)
 print()
 # print(tensor5)
 # print(tensor6)
+
+print("\n---matmul---\n")
+# 2d
+A = candle.Tensor([[1,2],[3,4],[5,6]])
+B = candle.Tensor([[3,2],[1,0]])
+C = A.matmul(B)
+print(C.shape)
+print(C)

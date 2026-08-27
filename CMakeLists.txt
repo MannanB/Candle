@@ -18,6 +18,7 @@ pybind11_add_module(
     candle.cpp
     kernels/add.cu
     kernels/transpose.cu
+    kernels/gemm.cu
 )
 
 target_include_directories(

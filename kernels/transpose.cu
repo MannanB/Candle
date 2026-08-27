@@ -7,17 +7,17 @@
 #define THREADS_COL_DIM 8
 #define THREADS_SUFFIX_DIM 8
 
-#define THREADS_PER_BLOCK THREADS_PREFIX_DIM*THREADS_ROW_DIM*THREADS_COL_DIM*THREADS_SUFFIX_DIM
+#define THREADS_PER_BLOCK_TR THREADS_PREFIX_DIM*THREADS_ROW_DIM*THREADS_COL_DIM*THREADS_SUFFIX_DIM
 #define idx(p, r, c, s, R, C, S) ( p * R * C * S + r * S * C + c * S + s )
 
 /* CUDA kernel for shared memory matrix transpose */
-__global__ void mat_transpose_kernel(float *a, float *c, int numPrefix, int numRows, int numCols, int numSuffix,
+__global__ void mat_transpose_kernel(float* A, float* C, int numPrefix, int numRows, int numCols, int numSuffix,
                                                          int numBlocksPre, int numBlocksRow, int numBlocksCols, int numBlockSuf)
 {
 
     /* declare a statically allocated shared memory array */
 
-    __shared__ float smemArray[THREADS_PER_BLOCK]; // i hope this is banked
+    __shared__ float smemArray[THREADS_PER_BLOCK_TR]; // TODO: check bank conflicts (i think padding is needed or something)
 
     /* determine my row and column indices for the error checking code */
 
@@ -40,7 +40,7 @@ __global__ void mat_transpose_kernel(float *a, float *c, int numPrefix, int numR
     if( pIdx < numPrefix && rIdx < numRows && cIdx < numCols && sIdx < numSuffix )
     {
         smemArray[idx(preThreadIdx, rowThreadIdx, colThreadIdx, sufThreadIdx, THREADS_ROW_DIM, THREADS_COL_DIM, THREADS_SUFFIX_DIM)] 
-                = a[idx(pIdx, rIdx, cIdx, sIdx, numRows, numCols, numSuffix)];
+                = A[idx(pIdx, rIdx, cIdx, sIdx, numRows, numCols, numSuffix)];
     } 
 
     /* synchronize the threads in the thread block */
@@ -56,7 +56,7 @@ __global__ void mat_transpose_kernel(float *a, float *c, int numPrefix, int numR
     const int cIdxNew = rowBlockIdx * THREADS_ROW_DIM + outColLocal;
 
     if (pIdx < numPrefix && rIdxNew < numCols && cIdxNew < numRows && sIdx < numSuffix ) {
-        c[idx(pIdx, rIdxNew, cIdxNew, sIdx, numCols, numRows, numSuffix)] = 
+        C[idx(pIdx, rIdxNew, cIdxNew, sIdx, numCols, numRows, numSuffix)] = 
         smemArray[idx(preThreadIdx, outColLocal, outRowLocal, sufThreadIdx, THREADS_ROW_DIM, THREADS_COL_DIM, THREADS_SUFFIX_DIM)];
     } 
     return;
@@ -71,7 +71,7 @@ void launch_mat_transpose_kernel(float* A, float* C, int numPrefix, int numRows,
     int numBlocksSuf = cuda::ceil_div(numSuffix, THREADS_SUFFIX_DIM);
     int numBlocks = numBlocksPre*numBlocksRow*numBlocksCol*numBlocksSuf;
 
-    mat_transpose_kernel<<<numBlocks, THREADS_PER_BLOCK>>>(A, C, numPrefix, numRows, numCols, numSuffix, numBlocksPre, numBlocksRow, numBlocksCol, numBlocksSuf);
+    mat_transpose_kernel<<<numBlocks, THREADS_PER_BLOCK_TR>>>(A, C, numPrefix, numRows, numCols, numSuffix, numBlocksPre, numBlocksRow, numBlocksCol, numBlocksSuf);
 
     CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaDeviceSynchronize());

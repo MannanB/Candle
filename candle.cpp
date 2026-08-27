@@ -10,13 +10,29 @@
 #include <stdio.h>
 #include <stdexcept>
 #include <vector>
+#include <random>
 
 #include "utils.h"
 #include "kernels/add.h"
 #include "kernels/transpose.h"
+#include "kernels/gemm.h"
 
 namespace py = pybind11;
 
+class Random {
+private:
+    inline static std::random_device rd;
+    inline static std::mt19937 gen{rd()};
+
+public:
+    Random() = delete;
+
+    static float get_float(float min, float max) {
+        std::uniform_real_distribution<float> dis(min, max);
+        return dis(gen);
+    }
+
+};
 
 struct Tensor { // native CUDA memory
     Tensor(float* host_data, int size, int* shape, int ndim) : size(size), shape(shape), ndim(ndim) {
@@ -82,8 +98,57 @@ struct Tensor { // native CUDA memory
         return out;
     }
 
+    static std::unique_ptr<Tensor> uniform(int* shape, int ndim, float min, float max) {
+        int size = 1;
+        for (int d=0; d<ndim; d++) { size *= shape[d]; }
+
+        float* hostData = new float[size];
+
+        for (int i=0; i<size; i++) {
+            hostData[i] = Random::get_float(min, max);
+        }
+
+        std::unique_ptr<Tensor> out = std::make_unique<Tensor>(hostData, size, shape, ndim);
+
+        return out;
+    }
+
+
+    static std::unique_ptr<Tensor> matmul(const Tensor* a, const Tensor* b) {
+        if (a->shape[a->ndim-1] != b->shape[0]) {
+            throw std::invalid_argument("Dimensions must line up for matmul");
+        }
+
+        int a_rows = 1; // collapse for matmul (or expand if a is 1 dim)
+        if (a->ndim > 1) { for (int d=0; d < a->ndim-1; d++) { a_rows *= a->shape[d]; } }
+        int b_cols = 1; // collapse for matmul (or expand if b is 1 dim)
+        if (b->ndim > 1) { for (int d=1; d < b->ndim; d++) { b_cols *= b->shape[d]; } }
+
+        int* newShape = new int[a->ndim-1 + b->ndim-1];
+        for (int d=0; d < a->ndim-1; d++) {
+            newShape[d] = a->shape[d];
+        }
+        for (int d=1; d < b->ndim; d++) {
+            newShape[a->ndim-2+d] = b->shape[d];
+        }
+
+        std::unique_ptr<Tensor> out = std::make_unique<Tensor>(
+            a_rows*b_cols,
+            newShape,
+            a->ndim-1 + b->ndim-1
+        );
+
+        launch_mat_mul_kernel(a->data, b->data, out->data, a_rows, b->shape[0], b_cols);
+
+        return out;
+    }
+
     std::unique_ptr<Tensor> operator+(const Tensor& other) const {
         return add(this, &other);
+    }
+
+    std::unique_ptr<Tensor> matmul(const Tensor& other) const {
+        return matmul(this, &other);
     }
 
     float* data = nullptr;
@@ -207,6 +272,37 @@ PYBIND11_MODULE(candle, m, py::mod_gil_not_used()) {
                 py::arg("data_list")
             )
 
+            .def_static(
+                "uniform",
+                [](const std::vector<int>& shape, float min, float max) {
+                    int ndim = static_cast<int>(shape.size());
+
+                    int* shape_copy = new int[ndim];
+                    for (int i = 0; i < ndim; ++i) {
+                        shape_copy[i] = shape[i];
+                    }
+
+                    return Tensor::uniform(shape_copy, ndim, min, max);
+                },
+                py::arg("shape"),
+                py::arg("min") = 0.0f,
+                py::arg("max") = 1.0f
+            )
+
+            .def("numpy", [](const Tensor& tensor) {
+                    std::vector<py::ssize_t> shape(tensor.shape, tensor.shape + tensor.ndim);
+                    py::array_t<float> out(shape);
+
+                    CUDA_CHECK(cudaMemcpy(
+                        out.mutable_data(),
+                        tensor.data,
+                        tensor.size * sizeof(float),
+                        cudaMemcpyDeviceToHost
+                    ));
+
+                    return out;
+                })
+
             .def_property_readonly(
                 "shape",
                 [](const Tensor& tensor) {
@@ -227,6 +323,12 @@ PYBIND11_MODULE(candle, m, py::mod_gil_not_used()) {
                 &Tensor::tranpose,
                 py::arg("dim1"),
                 py::arg("dim2")
+            )
+
+            .def(
+                "matmul",
+                py::overload_cast<const Tensor&>(&Tensor::matmul, py::const_),
+                py::arg("other")
             )
             
             .def("__repr__", [](const Tensor& tensor) {
