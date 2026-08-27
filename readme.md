@@ -12,6 +12,7 @@ TODOs
     - [ ] fused backward kernels
 - [ ] cleanup file structure
 - [ ] Python-side type hints / QOL
+- [ ] half precision
 - [ ] Optimizers
     - [ ] SGD
     - [ ] Adam

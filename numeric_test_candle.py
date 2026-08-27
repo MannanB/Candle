@@ -1,12 +1,6 @@
-import os, sys
-import numpy as np
 
-_cuda_dll_dir = os.add_dll_directory(
-    os.path.join(os.environ["CUDA_PATH"], "bin")
-)
-
-sys.path.insert(0, "build")
 import candle
+
 
 rng = np.random.default_rng(0)
 
