@@ -5,9 +5,11 @@ A simpler recreation of pytorch with cuda kernels from scratch (no AI for kernel
 TODOs
 
 - [x] Simple kernels (add, mm, transpose) 
+    - [x] simple gemm (batched,broadcast)
+    - [ ] simple gemv 
 - [x] Simple python bindings
 - [ ] Better matmul (mma, tmem / tensor core usage, coarse)
-    - [ ] batched matmul / normal pytorch style matmul dimensions
+    - [x] batched matmul / normal pytorch style matmul dimensions
     - [ ] fused forward kernels (activations)
     - [ ] fused backward kernels
 - [ ] cleanup file structure

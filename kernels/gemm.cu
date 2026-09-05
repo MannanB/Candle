@@ -1,7 +1,7 @@
 #include "gemm.h"
 
-#define THREADS_PER_BLOCK_MM 32
-#define TILE_WIDTH 32
+#define THREADS_PER_BLOCK_MM 16
+#define TILE_WIDTH 16
 
 // TODO: try coarse matmul + vectorization
 // TODO: use tmem / modern cuda mma (does my gpu even support that)
@@ -35,8 +35,8 @@ __global__ void mat_mul_kernel(float* A, float* B, float* C, int A_rows, int sha
 
         for (int k_tile = 0; k_tile < blockDim.x; k_tile++) {
             value += tile_shared_mem_A[threadIdx.y][k_tile] * tile_shared_mem_B[k_tile][threadIdx.x];
-            __syncthreads();
         }
+        __syncthreads();
     }
 
     if (row < A_rows && col < B_cols) {
