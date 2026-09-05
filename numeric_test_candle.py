@@ -1,4 +1,4 @@
-
+import numpy as np
 import candle
 
 
@@ -74,24 +74,28 @@ for trial in range(12):
         dims=(d1, d2)
     )
 
-    # MATMUL / TENSOR CONTRACTION
+    # MATMUL (2D or same-shape batches; no broadcasting)
+    batch_rank = trial % 3
+    batch_shape = tuple(rng.integers(2, 5, size=batch_rank))
+    m = int(rng.integers(2, 40))
     k = int(rng.integers(2, 40))
+    n = int(rng.integers(2, 40))
 
-    a_prefix = tuple(rng.integers(2, 8, size=rng.integers(1, 4)))
-    b_suffix = tuple(rng.integers(2, 8, size=rng.integers(1, 4)))
-
-    a = rng.uniform(-5, 5, (*a_prefix, k)).astype(np.float32)
-    b = rng.uniform(-5, 5, (k, *b_suffix)).astype(np.float32)
+    a = rng.uniform(-5, 5, (*batch_shape, m, k)).astype(np.float32)
+    b = rng.uniform(-5, 5, (*batch_shape, k, n)).astype(np.float32)
 
     ca, cb = T(a), T(b)
 
     check(
         "matmul",
         ca.matmul(cb).numpy(),
-        np.tensordot(a, b, axes=([-1], [0])),
+        np.matmul(a, b),
         A_shape=a.shape,
         B_shape=b.shape,
-        K=k
+        batch_shape=batch_shape,
+        M=m,
+        K=k,
+        N=n
     )
 
 print("\nALL TESTS PASSED")

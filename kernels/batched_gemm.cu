@@ -1,4 +1,4 @@
-#include "gemm.h"
+#include "batched_gemm.h"
 
 #define THREADS_PER_BLOCK_MM 16
 #define TILE_WIDTH 16

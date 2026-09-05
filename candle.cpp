@@ -14,8 +14,12 @@
 
 #include "utils.h"
 #include "kernels/add.h"
+#include "kernels/broadcast_add.h"
 #include "kernels/transpose.h"
 #include "kernels/gemm.h"
+#include "kernels/batched_gemm.h"
+#include "kernels/broadcast_gemm.h"
+
 
 namespace py = pybind11;
 
@@ -80,21 +84,55 @@ struct Tensor { // native CUDA memory
     }
 
     static std::unique_ptr<Tensor> add(const Tensor* a, const Tensor* b) {
-        if (a->size != b->size || a->ndim != b->ndim) {
-            throw std::invalid_argument("Tensor shapes must match for addition");
-        }
-
-        int* out_shape = new int[a->ndim];
-        for (int i = 0; i < a->ndim; ++i) {
-            if (a->shape[i] != b->shape[i]) {
-                delete[] out_shape;
-                throw std::invalid_argument("Tensor shapes must match for addition");
+        bool same_shape = a->ndim == b->ndim;
+        if (same_shape) {
+            for (int d=0; d < a->ndim; d++) {
+                if (a->shape[d] != b->shape[d]) {
+                    same_shape = false;
+                    break;
+                }
             }
-            out_shape[i] = a->shape[i];
         }
 
-        auto out = std::make_unique<Tensor>(a->size, out_shape, a->ndim);
-        launch_vec_add_kernel(a->data, b->data, out->data, a->size);
+        if (same_shape) {
+            int* out_shape = new int[a->ndim];
+            for (int d=0; d < a->ndim; d++) {
+                out_shape[d] = a->shape[d];
+            }
+
+            auto out = std::make_unique<Tensor>(a->size, out_shape, a->ndim);
+            // TODO: batched_add
+            launch_vec_add_kernel(a->data, b->data, out->data, a->size);
+            return out;
+        }
+
+        const Tensor* batched = a->size > b->size ? a : b;
+        const Tensor* broadcasted = a->size > b->size ? b : a;
+
+        if (broadcasted->ndim >= batched->ndim || batched->size % broadcasted->size != 0) {
+            throw std::invalid_argument("Tensor shapes cannot be broadcast for addition");
+        }
+
+        const int dim_offset = batched->ndim - broadcasted->ndim;
+        for (int d=0; d < broadcasted->ndim; d++) {
+            if (batched->shape[dim_offset+d] != broadcasted->shape[d]) {
+                throw std::invalid_argument("Tensor shapes cannot be broadcast for addition");
+            }
+        }
+
+        int* out_shape = new int[batched->ndim];
+        for (int d=0; d < batched->ndim; d++) {
+            out_shape[d] = batched->shape[d];
+        }
+
+        auto out = std::make_unique<Tensor>(batched->size, out_shape, batched->ndim);
+        launch_broadcast_vec_add_kernel(
+            batched->data,
+            broadcasted->data,
+            out->data,
+            broadcasted->size,
+            batched->size / broadcasted->size
+        );
         return out;
     }
 
@@ -102,7 +140,11 @@ struct Tensor { // native CUDA memory
         int size = 1;
         for (int d=0; d<ndim; d++) { size *= shape[d]; }
 
-        float* hostData = new float[size];
+        float* hostData = nullptr;
+        CUDA_CHECK(cudaMallocHost(
+            reinterpret_cast<void**>(&hostData),
+            size * sizeof(float)
+        ));
 
         for (int i=0; i<size; i++) {
             hostData[i] = Random::get_float(min, max);
@@ -115,52 +157,108 @@ struct Tensor { // native CUDA memory
 
 
     static std::unique_ptr<Tensor> matmul(const Tensor* a, const Tensor* b) {
-        int batch_size_A = 1;
-        int batch_size_B = 1;
-        int A_rows = 1;
-        int A_cols = 1;
+        // handle these cases:
+        // case 1: normal batched matmul batch x m x k * batch x k x n
+        // case 2: gemv (need better kernel) batch x m x k * batch x k (x 1)
+        // case 3: broadcast matmul  m x k * batch x k x n
+        // case 4: broadcast gemv m x k * batch x k (x 1)
+        // all go to batch x m x n
+
+        if (a->ndim < 2 || b->ndim < 1) {
+            throw std::invalid_argument("Matmul requires a matrix on the left");
+        }
+
+        const int A_rows = a->shape[a->ndim-2];
+        const int A_cols = a->shape[a->ndim-1];
         int B_rows = 1;
         int B_cols = 1;
+        int batch_size = 1;
+        int out_ndim = 2;
+        int* newShape = nullptr;
+        bool batched = a->ndim > 2;
+        bool broadcast = false;
 
-        // autmatic expansion
+        if (batched) {
+            if (b->ndim == a->ndim) {
+                B_rows = b->shape[b->ndim-2];
+                B_cols = b->shape[b->ndim-1];
 
-        if (a->ndim == 1) {
-            A_rows = a->shape[0];
-        } else { 
-            A_rows = a->shape[a->ndim-2];
-            A_cols = a->shape[a->ndim-1];
-            if (a->ndim > 2) { for (int d=0; d < a->ndim-2; d++) { batch_size_A *= a->shape[d]; } }
-        }
-        if (b->ndim == 1) {
-            B_cols = b->shape[0];
-        } else { 
+                for (int d=0; d < a->ndim-2; d++) {
+                    if (a->shape[d] != b->shape[d]) {
+                        throw std::invalid_argument("Batch dimensions must match");
+                    }
+                    batch_size *= a->shape[d];
+                }
+            } else if (b->ndim == a->ndim-1) {
+                B_rows = b->shape[b->ndim-1];
+
+                for (int d=0; d < b->ndim-1; d++) {
+                    if (a->shape[d] != b->shape[d]) {
+                        throw std::invalid_argument("Batch dimensions must match");
+                    }
+                    batch_size *= a->shape[d];
+                }
+            } else {
+                throw std::invalid_argument("Unsupported batched matmul dimensions");
+            }
+
+            out_ndim = a->ndim;
+            newShape = new int[out_ndim];
+            for (int d=0; d < out_ndim-2; d++) {
+                newShape[d] = a->shape[d];
+            }
+            newShape[out_ndim-2] = A_rows;
+            newShape[out_ndim-1] = B_cols;
+        } else if (b->ndim == 1) {
+            B_rows = b->shape[0];
+            newShape = new int[2]{A_rows, 1};
+        } else if (A_cols == b->shape[b->ndim-2]) {
             B_rows = b->shape[b->ndim-2];
             B_cols = b->shape[b->ndim-1];
-            if (b->ndim > 2) { for (int d=0; d < b->ndim-2; d++) { batch_size_B *= b->shape[d]; } }
-        }
+            broadcast = b->ndim > 2;
+            out_ndim = b->ndim;
+            newShape = new int[out_ndim];
 
+            for (int d=0; d < b->ndim-2; d++) {
+                newShape[d] = b->shape[d];
+                batch_size *= b->shape[d];
+            }
+            newShape[out_ndim-2] = A_rows;
+            newShape[out_ndim-1] = B_cols;
+        } else if (A_cols == b->shape[b->ndim-1]) {
+            B_rows = b->shape[b->ndim-1];
+            broadcast = true;
+            out_ndim = b->ndim+1;
+            newShape = new int[out_ndim];
 
-        if (A_cols != B_rows) {
+            for (int d=0; d < b->ndim-1; d++) {
+                newShape[d] = b->shape[d];
+                batch_size *= b->shape[d];
+            }
+            newShape[out_ndim-2] = A_rows;
+            newShape[out_ndim-1] = 1;
+        } else {
             throw std::invalid_argument("Dimensions must line up for matmul");
         }
-        if (batch_size_A != batch_size_B) {
-            throw std::invalid_argument("Batch sizes must be same");
-        }
 
-
-        int* newShape = new int[a->ndim];
-        for (int d=0; d < a->ndim-1; d++) {
-            newShape[d] = a->shape[d];
+        if (A_cols != B_rows) {
+            delete[] newShape;
+            throw std::invalid_argument("Dimensions must line up for matmul");
         }
-        newShape[b->ndim-1] = b->shape[b->ndim-1];
 
         std::unique_ptr<Tensor> out = std::make_unique<Tensor>(
-            a_rows*b_cols,
+            batch_size*A_rows*B_cols,
             newShape,
-            a->ndim
+            out_ndim
         );
 
-        launch_mat_mul_kernel(a->data, b->data, out->data, batch_size_A, A_rows, A_cols, B_rows);
+        if (batched) {
+            launch_batched_mat_mul_kernel(a->data, b->data, out->data, batch_size, A_rows, A_cols, B_cols);
+        } else if (broadcast) {
+            launch_broadcast_mat_mul_kernel(a->data, b->data, out->data, batch_size, A_rows, A_cols, B_cols);
+        } else {
+            launch_mat_mul_kernel(a->data, b->data, out->data, A_rows, A_cols, B_cols);
+        }
 
         return out;
     }
@@ -261,7 +359,7 @@ std::string format_tensor_data(const std::vector<float>& data, const int* shape,
 
 */
 
-PYBIND11_MODULE(candle, m, py::mod_gil_not_used()) {
+PYBIND11_MODULE(_candle, m, py::mod_gil_not_used()) {
 
     py::class_<Tensor>(m, "Tensor")
             .def(

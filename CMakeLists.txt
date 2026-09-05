@@ -14,25 +14,28 @@ find_package(pybind11 CONFIG REQUIRED)
 find_package(CUDAToolkit REQUIRED)
 
 pybind11_add_module(
-    candle
+    _candle
     candle.cpp
     kernels/add.cu
+    kernels/broadcast_add.cu
     kernels/transpose.cu
     kernels/gemm.cu
+    kernels/batched_gemm.cu
+    kernels/broadcast_gemm.cu
 )
 
 target_include_directories(
-    candle PRIVATE
+    _candle PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/kernels
 )
 
 target_link_libraries(
-    candle PRIVATE
+    _candle PRIVATE
     CUDA::cudart
 )
 
 set_target_properties(
-    candle PROPERTIES
+    _candle PROPERTIES
     CUDA_SEPARABLE_COMPILATION ON
 )
