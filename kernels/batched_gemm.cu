@@ -8,7 +8,6 @@ __global__ void batched_mat_mul_kernel(float* A, float* B, float* C, int batched
     // C -> A_rows x B_cols
 
     const int batch = blockIdx.z;
-
     const int row = blockIdx.y * TILE_WIDTH + threadIdx.y;
     const int col = blockIdx.x * TILE_WIDTH + threadIdx.x;
     const int num_tiles = ceil((float)shared_dim / TILE_WIDTH);
