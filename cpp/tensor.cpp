@@ -119,6 +119,12 @@ Tensor Tensor::add(const Tensor& a, const Tensor& b) {
 
         Tensor out(a.tensor_data->size, out_shape, a.ndim);
         launch_vec_add_kernel(a.tensor_data->data, b.tensor_data->data, out.tensor_data->data, a.tensor_data->size);
+        
+        if (a.requires_grad || b.requires_grad) {
+            out.requires_grad = true;
+            out.grad_fn = std::make_shared<AddGradFn>(a, b);
+        }
+        
         return out;
     }
 
@@ -157,6 +163,12 @@ Tensor Tensor::add(const Tensor& a, const Tensor& b) {
         broadcasted->tensor_data->size,
         batched->tensor_data->size / broadcasted->tensor_data->size
     );
+
+    if (a.requires_grad || b.requires_grad) {
+        out.requires_grad = true;
+        out.grad_fn = std::make_shared<AddGradFn>(a, b);
+    }
+
     return out;
 }
 
@@ -175,7 +187,24 @@ Tensor Tensor::uniform(int* shape, int ndim, float min, float max) {
     for (int i = 0; i < size; ++i) {
         host_data[i] = random_float(min, max);
     }
+    return Tensor(host_data, size, shape, ndim);
+}
 
+Tensor Tensor::ones(int* shape, int ndim) {
+    int size = 1;
+    for (int d = 0; d < ndim; ++d) {
+        size *= shape[d];
+    }
+
+    float* host_data = nullptr;
+    CUDA_CHECK(cudaMallocHost(
+        reinterpret_cast<void**>(&host_data),
+        size * sizeof(float)
+    ));
+
+    for (int i = 0; i < size; ++i) {
+        host_data[i] = 1;
+    }
     return Tensor(host_data, size, shape, ndim);
 }
 
@@ -292,6 +321,11 @@ Tensor Tensor::matmul(const Tensor& a, const Tensor& b) {
         );
     }
 
+    if (a.requires_grad || b.requires_grad) {
+        out.requires_grad = true;
+        out.grad_fn = std::make_shared<MatMulGradFn>(a, b);
+    }
+
     return out;
 }
 
@@ -301,4 +335,21 @@ Tensor Tensor::operator+(const Tensor& other) const {
 
 Tensor Tensor::matmul(const Tensor& other) const {
     return matmul(*this, other);
+}
+
+void Tensor::backward() {
+    if (grad_fn == nullptr || !requires_grad) {return;}
+
+    if (grad == nullptr) {
+        Tensor start_grad = Tensor::ones(this->shape, this->ndim);
+        grad = std::make_shared<Tensor>(std::move(start_grad));
+    }
+
+    std::vector<Tensor> grads = grad_fn->backward(*grad);
+
+    // DFS backward; probably wont work for all kinds of graphs
+    for (int i=0; i<grad_fn->parents.size(); i++) {
+        grad_fn->parents[i].grad = std::make_shared<Tensor>(std::move(grads[i]));
+        grad_fn->parents[i].backward();
+    }
 }
