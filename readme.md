@@ -2,6 +2,13 @@
 
 A simpler recreation of pytorch with cuda kernels from scratch (no AI for kernels)
 
+## Layout
+
+- `cpp/` contains the native tensor implementation, pybind11 bindings, utilities,
+  and CUDA kernels.
+- `python/` contains the public Python module and Python tests.
+- `scripts/` contains the Windows setup, build, and test helpers.
+
 TODOs
 
 - [x] Simple kernels (add, mm, transpose) 
@@ -12,7 +19,7 @@ TODOs
     - [x] batched matmul / normal pytorch style matmul dimensions
     - [ ] fused forward kernels (activations)
     - [ ] fused backward kernels
-- [ ] cleanup file structure
+- [x] Separate native C++/CUDA code from the Python API
 - [ ] Python-side type hints / QOL
 - [ ] half precision
 - [ ] Optimizers

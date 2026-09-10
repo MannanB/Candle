@@ -271,7 +271,7 @@ struct Tensor { // native CUDA memory
         return matmul(this, &other);
     }
 
-    float* data = nullptr;
+    float* data = nullpth;
     int size = 0;
 
     int* shape = nullptr;

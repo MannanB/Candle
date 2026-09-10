@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(mycuda LANGUAGES CXX CUDA)
+project(candle LANGUAGES CXX CUDA)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CUDA_STANDARD 17)
@@ -15,19 +15,21 @@ find_package(CUDAToolkit REQUIRED)
 
 pybind11_add_module(
     _candle
-    candle.cpp
-    kernels/add.cu
-    kernels/broadcast_add.cu
-    kernels/transpose.cu
-    kernels/gemm.cu
-    kernels/batched_gemm.cu
-    kernels/broadcast_gemm.cu
+    cpp/bindings.cpp
+    cpp/tensor.cpp
+    cpp/utils.cpp
+    cpp/kernels/add.cu
+    cpp/kernels/broadcast_add.cu
+    cpp/kernels/transpose.cu
+    cpp/kernels/gemm.cu
+    cpp/kernels/batched_gemm.cu
+    cpp/kernels/broadcast_gemm.cu
 )
 
 target_include_directories(
     _candle PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/kernels
+    ${CMAKE_CURRENT_SOURCE_DIR}/cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/kernels
 )
 
 target_link_libraries(

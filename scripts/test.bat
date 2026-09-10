@@ -12,10 +12,10 @@ if not exist ".venv\Scripts\activate.bat" (
 
 call ".venv\Scripts\activate.bat"
 
-REM Allow Python to import the generated .pyd module.
-set "PYTHONPATH=%CD%\build;%CD%\build\Release;%PYTHONPATH%"
+REM Allow Python to import the wrapper and generated .pyd module.
+set "PYTHONPATH=%CD%\python;%CD%\build;%CD%\build\Release;%PYTHONPATH%"
 
-python test.py
+python python\test_candle.py
 set "RESULT=%ERRORLEVEL%"
 
 endlocal & exit /b %RESULT%

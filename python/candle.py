@@ -1,10 +1,11 @@
 import os
 
-_cuda_dll_dir = os.add_dll_directory(
-    os.path.join(os.environ["CUDA_PATH"], "bin")
-)
+if os.name == "nt":
+    _cuda_dll_dir = os.add_dll_directory(
+        os.path.join(os.environ["CUDA_PATH"], "bin")
+    )
 
-from build._candle import Tensor as Tensor  # type: ignore  # noqa: E402
+from _candle import Tensor as Tensor  # type: ignore  # noqa: E402
 
 
 class Linear:
@@ -19,7 +20,11 @@ class Linear:
     def forward(self, x):
         return self.weights.matmul(x) + self.biases
 
-    def backward(self, y):
+    def backward(self, dLdOut, inp):
+        # return dLdInp
+
+
+
         return None
 
 

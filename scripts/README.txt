@@ -1,22 +1,5 @@
-Place this entire scripts folder inside your project root:
-
-Candle\
-├── CMakeLists.txt
-├── .venv\
-├── bindings.cpp
-├── kernel.cu
-├── kernel.h
-├── test.py
-└── scripts\
-    ├── setup.bat
-    ├── configure.bat
-    ├── build.bat
-    ├── clean.bat
-    ├── rebuild.bat
-    ├── test.bat
-    └── all.bat
-
-Run from the project root:
+Run the scripts from the project root on a Windows machine with CUDA and
+Visual Studio Build Tools installed:
 
     .\scripts\setup.bat
     .\scripts\configure.bat
@@ -27,6 +10,23 @@ For a clean rebuild:
 
     .\scripts\rebuild.bat
 
-To run everything:
+To run setup, rebuild, and tests:
 
     .\scripts\all.bat
+
+Project layout:
+
+    Candle\
+    |-- CMakeLists.txt
+    |-- cpp\
+    |   |-- bindings.cpp
+    |   |-- tensor.cpp
+    |   |-- tensor.h
+    |   |-- utils.cpp
+    |   |-- utils.h
+    |   `-- kernels\
+    |-- python\
+    |   |-- candle.py
+    |   |-- test_candle.py
+    |   `-- numeric_test_candle.py
+    `-- scripts\
