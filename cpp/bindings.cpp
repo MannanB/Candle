@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "layers.h"
 #include "tensor.h"
 #include "utils.h"
 
@@ -100,7 +101,7 @@ std::string format_tensor_data(
     return output;
 }
 
-Tensor tensor_from_list(const py::list& data_list) {
+Tensor tensor_from_list(const py::list& data_list, bool requires_grad) {
     const int ndim = get_nested_list_ndim(data_list);
     int* shape = new int[ndim];
     const int size = get_nested_list_shape(data_list, shape);
@@ -112,20 +113,47 @@ Tensor tensor_from_list(const py::list& data_list) {
     ));
     flatten_nested_list(data_list, host_data, 0);
 
-    return Tensor(host_data, size, shape, ndim);
+    Tensor tensor(host_data, size, shape, ndim);
+    tensor.requires_grad = requires_grad;
+    return tensor;
 }
 
 Tensor uniform_tensor(
     const std::vector<int>& shape,
     float min,
-    float max
+    float max,
+    bool requires_grad
 ) {
     const int ndim = static_cast<int>(shape.size());
     int* shape_copy = new int[ndim];
     for (int i = 0; i < ndim; ++i) {
         shape_copy[i] = shape[i];
     }
-    return Tensor::uniform(shape_copy, ndim, min, max);
+    Tensor tensor = Tensor::uniform(shape_copy, ndim, min, max);
+    tensor.requires_grad = requires_grad;
+    return tensor;
+}
+
+Tensor ones_tensor(const std::vector<int>& shape, bool requires_grad) {
+    const int ndim = static_cast<int>(shape.size());
+    int* shape_copy = new int[ndim];
+    for (int i = 0; i < ndim; ++i) {
+        shape_copy[i] = shape[i];
+    }
+    Tensor tensor = Tensor::ones(shape_copy, ndim);
+    tensor.requires_grad = requires_grad;
+    return tensor;
+}
+
+Tensor zeroes_tensor(const std::vector<int>& shape, bool requires_grad) {
+    const int ndim = static_cast<int>(shape.size());
+    int* shape_copy = new int[ndim];
+    for (int i = 0; i < ndim; ++i) {
+        shape_copy[i] = shape[i];
+    }
+    Tensor tensor = Tensor::zeroes(shape_copy, ndim);
+    tensor.requires_grad = requires_grad;
+    return tensor;
 }
 
 py::array_t<float> tensor_to_numpy(const Tensor& tensor) {
@@ -192,17 +220,42 @@ std::string tensor_repr(const Tensor& tensor) {
 }  // namespace
 
 PYBIND11_MODULE(_candle, module, py::mod_gil_not_used()) {
-    py::class_<Tensor>(module, "Tensor")
-        .def(py::init(&tensor_from_list), py::arg("data_list"))
+    py::class_<Tensor, std::shared_ptr<Tensor>>(module, "Tensor")
+        .def(
+            py::init(&tensor_from_list),
+            py::arg("data_list"),
+            py::arg("requires_grad") = false
+        )
         .def_static(
             "uniform",
             &uniform_tensor,
             py::arg("shape"),
             py::arg("min") = 0.0f,
-            py::arg("max") = 1.0f
+            py::arg("max") = 1.0f,
+            py::arg("requires_grad") = false
+        )
+        .def_static(
+            "ones",
+            &ones_tensor,
+            py::arg("shape"),
+            py::arg("requires_grad") = false
+        )
+        .def_static(
+            "zeroes",
+            &zeroes_tensor,
+            py::arg("shape"),
+            py::arg("requires_grad") = false
         )
         .def("numpy", &tensor_to_numpy)
         .def_property_readonly("shape", &tensor_shape)
+        .def_readwrite("requires_grad", &Tensor::requires_grad)
+        .def_property_readonly("grad", [](const Tensor& tensor) {
+            return tensor.grad;
+        })
+        .def_property_readonly("is_leaf", [](const Tensor& tensor) {
+            return tensor.grad_fn == nullptr;
+        })
+        .def("backward", &Tensor::backward)
         .def(py::self + py::self)
         .def(
             "transpose",
@@ -216,4 +269,25 @@ PYBIND11_MODULE(_candle, module, py::mod_gil_not_used()) {
             py::arg("other")
         )
         .def("__repr__", &tensor_repr);
+
+    py::class_<Linear>(module, "Linear")
+        .def(
+            py::init<int, int, bool, bool>(),
+            py::arg("input_dim"),
+            py::arg("output_dim"),
+            py::arg("use_bias") = true,
+            py::arg("requires_grad") = true
+        )
+        .def("forward", &Linear::forward, py::arg("input"))
+        .def("__call__", &Linear::forward, py::arg("input"))
+        .def_property_readonly(
+            "weights",
+            &Linear::get_weights,
+            py::return_value_policy::reference_internal
+        )
+        .def_property_readonly(
+            "bias",
+            &Linear::get_bias,
+            py::return_value_policy::reference_internal
+        );
 }

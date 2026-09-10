@@ -27,3 +27,11 @@ Tensor Linear::forward(const Tensor& input) {
 
     return out;
 }
+
+Tensor& Linear::get_weights() {
+    return weights;
+}
+
+Tensor* Linear::get_bias() {
+    return use_bias ? &bias : nullptr;
+}
