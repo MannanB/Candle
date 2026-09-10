@@ -27,6 +27,33 @@ Tensor::Tensor(int size, int* shape, int ndim) : size(size), shape(shape), ndim(
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&data), size * sizeof(float)));
 }
 
+Tensor::Tensor(Tensor&& other) noexcept : data(other.data), size(other.size), shape(other.shape), ndim(other.ndim) {
+    other.data = nullptr;
+    other.size = 0;
+    other.shape = nullptr;
+    other.ndim = 0;
+}
+
+Tensor& Tensor::operator=(Tensor&& other) noexcept {
+    if (this != &other) {
+        if (data != nullptr) {
+            cudaFree(data);
+        }
+        delete[] shape;
+
+        data = other.data;
+        size = other.size;
+        shape = other.shape;
+        ndim = other.ndim;
+
+        other.data = nullptr;
+        other.size = 0;
+        other.shape = nullptr;
+        other.ndim = 0;
+    }
+    return *this;
+}
+
 Tensor::~Tensor() {
     if (data != nullptr) {
         cudaFree(data);
@@ -34,7 +61,7 @@ Tensor::~Tensor() {
     delete[] shape;
 }
 
-std::unique_ptr<Tensor> Tensor::transpose(int dim1, int dim2) const {
+Tensor Tensor::transpose(int dim1, int dim2) const {
     int prefix_dim = 1;
     for (int d = 0; d < dim1; ++d) {
         prefix_dim *= shape[d];
@@ -54,10 +81,10 @@ std::unique_ptr<Tensor> Tensor::transpose(int dim1, int dim2) const {
     new_shape[dim1] = new_shape[dim2];
     new_shape[dim2] = buffer;
 
-    auto out = std::make_unique<Tensor>(size, new_shape, ndim);
+    Tensor out(size, new_shape, ndim);
     launch_mat_transpose_kernel(
         data,
-        out->data,
+        out.data,
         prefix_dim,
         shape[dim1],
         shape[dim2],
@@ -66,7 +93,7 @@ std::unique_ptr<Tensor> Tensor::transpose(int dim1, int dim2) const {
     return out;
 }
 
-std::unique_ptr<Tensor> Tensor::add(const Tensor* a, const Tensor* b) {
+Tensor Tensor::add(const Tensor* a, const Tensor* b) {
     bool same_shape = a->ndim == b->ndim;
     if (same_shape) {
         for (int d = 0; d < a->ndim; ++d) {
@@ -83,8 +110,8 @@ std::unique_ptr<Tensor> Tensor::add(const Tensor* a, const Tensor* b) {
             out_shape[d] = a->shape[d];
         }
 
-        auto out = std::make_unique<Tensor>(a->size, out_shape, a->ndim);
-        launch_vec_add_kernel(a->data, b->data, out->data, a->size);
+        Tensor out(a->size, out_shape, a->ndim);
+        launch_vec_add_kernel(a->data, b->data, out.data, a->size);
         return out;
     }
 
@@ -111,7 +138,7 @@ std::unique_ptr<Tensor> Tensor::add(const Tensor* a, const Tensor* b) {
         out_shape[d] = batched->shape[d];
     }
 
-    auto out = std::make_unique<Tensor>(
+    Tensor out(
         batched->size,
         out_shape,
         batched->ndim
@@ -119,14 +146,14 @@ std::unique_ptr<Tensor> Tensor::add(const Tensor* a, const Tensor* b) {
     launch_broadcast_vec_add_kernel(
         batched->data,
         broadcasted->data,
-        out->data,
+        out.data,
         broadcasted->size,
         batched->size / broadcasted->size
     );
     return out;
 }
 
-std::unique_ptr<Tensor> Tensor::uniform(
+Tensor Tensor::uniform(
     int* shape,
     int ndim,
     float min,
@@ -147,17 +174,17 @@ std::unique_ptr<Tensor> Tensor::uniform(
         host_data[i] = random_float(min, max);
     }
 
-    return std::make_unique<Tensor>(host_data, size, shape, ndim);
+    return Tensor(host_data, size, shape, ndim);
 }
 
-std::unique_ptr<Tensor> Tensor::sum(int dim) {
+Tensor Tensor::sum(int dim) const {
     // sum across dim
     // TODO: implement
-    return nullptr;
+    throw std::logic_error("Tensor::sum is not implemented");
 }
 
 
-std::unique_ptr<Tensor> Tensor::matmul(const Tensor* a, const Tensor* b) {
+Tensor Tensor::matmul(const Tensor* a, const Tensor* b) {
     if (a->ndim < 2 || b->ndim < 1) {
         throw std::invalid_argument("Matmul requires a matrix on the left");
     }
@@ -240,7 +267,7 @@ std::unique_ptr<Tensor> Tensor::matmul(const Tensor* a, const Tensor* b) {
         throw std::invalid_argument("Dimensions must line up for matmul");
     }
 
-    auto out = std::make_unique<Tensor>(
+    Tensor out(
         batch_size * a_rows * b_cols,
         new_shape,
         out_ndim
@@ -248,17 +275,17 @@ std::unique_ptr<Tensor> Tensor::matmul(const Tensor* a, const Tensor* b) {
 
     if (batched) {
         launch_batched_mat_mul_kernel(
-            a->data, b->data, out->data, 
+            a->data, b->data, out.data,
             batch_size, a_rows, a_cols,  b_cols
         );
     } else if (broadcast) {
         launch_broadcast_mat_mul_kernel(
-            a->data, b->data, out->data,
+            a->data, b->data, out.data,
             batch_size, a_rows, a_cols, b_cols
         );
     } else {
         launch_mat_mul_kernel(
-            a->data, b->data, out->data,
+            a->data, b->data, out.data,
             a_rows, a_cols, b_cols
         );
     }
@@ -266,10 +293,10 @@ std::unique_ptr<Tensor> Tensor::matmul(const Tensor* a, const Tensor* b) {
     return out;
 }
 
-std::unique_ptr<Tensor> Tensor::operator+(const Tensor& other) const {
+Tensor Tensor::operator+(const Tensor& other) const {
     return add(this, &other);
 }
 
-std::unique_ptr<Tensor> Tensor::matmul(const Tensor& other) const {
+Tensor Tensor::matmul(const Tensor& other) const {
     return matmul(this, &other);
 }

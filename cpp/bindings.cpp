@@ -100,7 +100,7 @@ std::string format_tensor_data(
     return output;
 }
 
-std::unique_ptr<Tensor> tensor_from_list(const py::list& data_list) {
+Tensor tensor_from_list(const py::list& data_list) {
     const int ndim = get_nested_list_ndim(data_list);
     int* shape = new int[ndim];
     const int size = get_nested_list_shape(data_list, shape);
@@ -112,10 +112,10 @@ std::unique_ptr<Tensor> tensor_from_list(const py::list& data_list) {
     ));
     flatten_nested_list(data_list, host_data, 0);
 
-    return std::make_unique<Tensor>(host_data, size, shape, ndim);
+    return Tensor(host_data, size, shape, ndim);
 }
 
-std::unique_ptr<Tensor> uniform_tensor(
+Tensor uniform_tensor(
     const std::vector<int>& shape,
     float min,
     float max

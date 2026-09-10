@@ -16,6 +16,7 @@ find_package(CUDAToolkit REQUIRED)
 pybind11_add_module(
     _candle
     cpp/bindings.cpp
+    cpp/layers.cpp
     cpp/tensor.cpp
     cpp/utils.cpp
     cpp/kernels/add.cu
