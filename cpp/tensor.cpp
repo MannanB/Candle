@@ -12,8 +12,7 @@
 #include "kernels/transpose.h"
 #include "utils.h"
 
-Tensor::Tensor(float* host_data, int size, int* shape, int ndim)
-    : size(size), shape(shape), ndim(ndim) {
+Tensor::Tensor(float* host_data, int size, int* shape, int ndim) : size(size), shape(shape), ndim(ndim) {
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&data), size * sizeof(float)));
     CUDA_CHECK(cudaMemcpy(
         data,
@@ -24,8 +23,7 @@ Tensor::Tensor(float* host_data, int size, int* shape, int ndim)
     CUDA_CHECK(cudaFreeHost(host_data));
 }
 
-Tensor::Tensor(int size, int* shape, int ndim)
-    : size(size), shape(shape), ndim(ndim) {
+Tensor::Tensor(int size, int* shape, int ndim) : size(size), shape(shape), ndim(ndim) {
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&data), size * sizeof(float)));
 }
 
@@ -93,10 +91,7 @@ std::unique_ptr<Tensor> Tensor::add(const Tensor* a, const Tensor* b) {
     const Tensor* batched = a->size > b->size ? a : b;
     const Tensor* broadcasted = a->size > b->size ? b : a;
 
-    if (
-        broadcasted->ndim >= batched->ndim ||
-        batched->size % broadcasted->size != 0
-    ) {
+    if (broadcasted->ndim >= batched->ndim || batched->size % broadcasted->size != 0) {
         throw std::invalid_argument(
             "Tensor shapes cannot be broadcast for addition"
         );
@@ -154,6 +149,13 @@ std::unique_ptr<Tensor> Tensor::uniform(
 
     return std::make_unique<Tensor>(host_data, size, shape, ndim);
 }
+
+std::unique_ptr<Tensor> Tensor::sum(int dim) {
+    // sum across dim
+    // TODO: implement
+    return nullptr;
+}
+
 
 std::unique_ptr<Tensor> Tensor::matmul(const Tensor* a, const Tensor* b) {
     if (a->ndim < 2 || b->ndim < 1) {
@@ -246,32 +248,18 @@ std::unique_ptr<Tensor> Tensor::matmul(const Tensor* a, const Tensor* b) {
 
     if (batched) {
         launch_batched_mat_mul_kernel(
-            a->data,
-            b->data,
-            out->data,
-            batch_size,
-            a_rows,
-            a_cols,
-            b_cols
+            a->data, b->data, out->data, 
+            batch_size, a_rows, a_cols,  b_cols
         );
     } else if (broadcast) {
         launch_broadcast_mat_mul_kernel(
-            a->data,
-            b->data,
-            out->data,
-            batch_size,
-            a_rows,
-            a_cols,
-            b_cols
+            a->data, b->data, out->data,
+            batch_size, a_rows, a_cols, b_cols
         );
     } else {
         launch_mat_mul_kernel(
-            a->data,
-            b->data,
-            out->data,
-            a_rows,
-            a_cols,
-            b_cols
+            a->data, b->data, out->data,
+            a_rows, a_cols, b_cols
         );
     }
 

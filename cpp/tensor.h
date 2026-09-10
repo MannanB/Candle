@@ -2,6 +2,8 @@
 
 #include <memory>
 
+
+
 struct Tensor {
     Tensor(float* host_data, int size, int* shape, int ndim);
     Tensor(int size, int* shape, int ndim);
@@ -11,6 +13,7 @@ struct Tensor {
     ~Tensor();
 
     std::unique_ptr<Tensor> transpose(int dim1, int dim2) const;
+    std::unique_ptr<Tensor> sum(int dim) const;
 
     static std::unique_ptr<Tensor> add(const Tensor* a, const Tensor* b);
     static std::unique_ptr<Tensor> uniform(
