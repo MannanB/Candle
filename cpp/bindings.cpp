@@ -136,8 +136,8 @@ py::array_t<float> tensor_to_numpy(const Tensor& tensor) {
     py::array_t<float> output(shape);
     CUDA_CHECK(cudaMemcpy(
         output.mutable_data(),
-        tensor.data,
-        tensor.size * sizeof(float),
+        tensor.tensor_data->data,
+        tensor.tensor_data->size * sizeof(float),
         cudaMemcpyDeviceToHost
     ));
     return output;
@@ -152,17 +152,17 @@ py::list tensor_shape(const Tensor& tensor) {
 }
 
 std::string tensor_repr(const Tensor& tensor) {
-    std::vector<float> host_data(tensor.size);
+    std::vector<float> host_data(tensor.tensor_data->size);
     CUDA_CHECK(cudaMemcpy(
         host_data.data(),
-        tensor.data,
-        tensor.size * sizeof(float),
+        tensor.tensor_data->data,
+        tensor.tensor_data->size * sizeof(float),
         cudaMemcpyDeviceToHost
     ));
 
     std::string data_string;
     if (tensor.ndim == 0) {
-        data_string = tensor.size > 0 ? std::to_string(host_data[0]) : "[]";
+        data_string = tensor.tensor_data->size > 0 ? std::to_string(host_data[0]) : "[]";
     } else {
         int flat_index = 0;
         data_string = format_tensor_data(

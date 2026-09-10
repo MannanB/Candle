@@ -3,6 +3,7 @@
 #include <cuda_runtime_api.h>
 
 #include <stdexcept>
+#include <utility>
 
 #include "kernels/add.h"
 #include "kernels/batched_gemm.h"
@@ -12,52 +13,58 @@
 #include "kernels/transpose.h"
 #include "utils.h"
 
-Tensor::Tensor(float* host_data, int size, int* shape, int ndim) : size(size), shape(shape), ndim(ndim) {
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&data), size * sizeof(float)));
+TensorData::~TensorData() {
+    if (data != nullptr) {
+        cudaFree(data);
+    }
+}
+
+Tensor::Tensor(float* host_data, int size, int* shape, int ndim) : shape(shape), ndim(ndim) {
+    tensor_data = std::make_shared<TensorData>();
+    tensor_data->size = size;
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&tensor_data->data), size * sizeof(float)));
     CUDA_CHECK(cudaMemcpy(
-        data,
+        tensor_data->data,
         host_data,
-        size * sizeof(float),
+        tensor_data->size * sizeof(float),
         cudaMemcpyHostToDevice
     ));
     CUDA_CHECK(cudaFreeHost(host_data));
 }
 
-Tensor::Tensor(int size, int* shape, int ndim) : size(size), shape(shape), ndim(ndim) {
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&data), size * sizeof(float)));
+Tensor::Tensor(int size, int* shape, int ndim) : shape(shape), ndim(ndim) {
+    tensor_data = std::make_shared<TensorData>();
+    tensor_data->size = size;
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&tensor_data->data), size * sizeof(float)));
 }
 
-Tensor::Tensor(Tensor&& other) noexcept : data(other.data), size(other.size), shape(other.shape), ndim(other.ndim) {
-    other.data = nullptr;
-    other.size = 0;
+Tensor::Tensor(std::shared_ptr<TensorData> tensor_data, int* shape, int ndim) : tensor_data(tensor_data), shape(shape), ndim(ndim) {
+
+}
+
+Tensor::Tensor(Tensor&& other) noexcept : tensor_data(std::move(other.tensor_data)), shape(other.shape), ndim(other.ndim), grad_graph(other.grad_graph) {
     other.shape = nullptr;
     other.ndim = 0;
+    other.grad_graph = nullptr;
 }
 
 Tensor& Tensor::operator=(Tensor&& other) noexcept {
     if (this != &other) {
-        if (data != nullptr) {
-            cudaFree(data);
-        }
         delete[] shape;
 
-        data = other.data;
-        size = other.size;
+        tensor_data = std::move(other.tensor_data);
         shape = other.shape;
         ndim = other.ndim;
+        grad_graph = other.grad_graph;
 
-        other.data = nullptr;
-        other.size = 0;
         other.shape = nullptr;
         other.ndim = 0;
+        other.grad_graph = nullptr;
     }
     return *this;
 }
 
 Tensor::~Tensor() {
-    if (data != nullptr) {
-        cudaFree(data);
-    }
     delete[] shape;
 }
 
@@ -81,10 +88,10 @@ Tensor Tensor::transpose(int dim1, int dim2) const {
     new_shape[dim1] = new_shape[dim2];
     new_shape[dim2] = buffer;
 
-    Tensor out(size, new_shape, ndim);
+    Tensor out(tensor_data->size, new_shape, ndim);
     launch_mat_transpose_kernel(
-        data,
-        out.data,
+        tensor_data->data,
+        out.tensor_data->data,
         prefix_dim,
         shape[dim1],
         shape[dim2],
@@ -93,11 +100,11 @@ Tensor Tensor::transpose(int dim1, int dim2) const {
     return out;
 }
 
-Tensor Tensor::add(const Tensor* a, const Tensor* b) {
-    bool same_shape = a->ndim == b->ndim;
+Tensor Tensor::add(const Tensor& a, const Tensor& b) {
+    bool same_shape = a.ndim == b.ndim;
     if (same_shape) {
-        for (int d = 0; d < a->ndim; ++d) {
-            if (a->shape[d] != b->shape[d]) {
+        for (int d = 0; d < a.ndim; ++d) {
+            if (a.shape[d] != b.shape[d]) {
                 same_shape = false;
                 break;
             }
@@ -105,20 +112,20 @@ Tensor Tensor::add(const Tensor* a, const Tensor* b) {
     }
 
     if (same_shape) {
-        int* out_shape = new int[a->ndim];
-        for (int d = 0; d < a->ndim; ++d) {
-            out_shape[d] = a->shape[d];
+        int* out_shape = new int[a.ndim];
+        for (int d = 0; d < a.ndim; ++d) {
+            out_shape[d] = a.shape[d];
         }
 
-        Tensor out(a->size, out_shape, a->ndim);
-        launch_vec_add_kernel(a->data, b->data, out.data, a->size);
+        Tensor out(a.tensor_data->size, out_shape, a.ndim);
+        launch_vec_add_kernel(a.tensor_data->data, b.tensor_data->data, out.tensor_data->data, a.tensor_data->size);
         return out;
     }
 
-    const Tensor* batched = a->size > b->size ? a : b;
-    const Tensor* broadcasted = a->size > b->size ? b : a;
+    const Tensor* batched = a.tensor_data->size > b.tensor_data->size ? &a : &b;
+    const Tensor* broadcasted = a.tensor_data->size > b.tensor_data->size ? &b : &a;
 
-    if (broadcasted->ndim >= batched->ndim || batched->size % broadcasted->size != 0) {
+    if (broadcasted->ndim >= batched->ndim || batched->tensor_data->size % broadcasted->tensor_data->size != 0) {
         throw std::invalid_argument(
             "Tensor shapes cannot be broadcast for addition"
         );
@@ -139,26 +146,21 @@ Tensor Tensor::add(const Tensor* a, const Tensor* b) {
     }
 
     Tensor out(
-        batched->size,
+        batched->tensor_data->size,
         out_shape,
         batched->ndim
     );
     launch_broadcast_vec_add_kernel(
-        batched->data,
-        broadcasted->data,
-        out.data,
-        broadcasted->size,
-        batched->size / broadcasted->size
+        batched->tensor_data->data,
+        broadcasted->tensor_data->data,
+        out.tensor_data->data,
+        broadcasted->tensor_data->size,
+        batched->tensor_data->size / broadcasted->tensor_data->size
     );
     return out;
 }
 
-Tensor Tensor::uniform(
-    int* shape,
-    int ndim,
-    float min,
-    float max
-) {
+Tensor Tensor::uniform(int* shape, int ndim, float min, float max) {
     int size = 1;
     for (int d = 0; d < ndim; ++d) {
         size *= shape[d];
@@ -184,77 +186,77 @@ Tensor Tensor::sum(int dim) const {
 }
 
 
-Tensor Tensor::matmul(const Tensor* a, const Tensor* b) {
-    if (a->ndim < 2 || b->ndim < 1) {
+Tensor Tensor::matmul(const Tensor& a, const Tensor& b) {
+    if (a.ndim < 2 || b.ndim < 1) {
         throw std::invalid_argument("Matmul requires a matrix on the left");
     }
 
-    const int a_rows = a->shape[a->ndim - 2];
-    const int a_cols = a->shape[a->ndim - 1];
+    const int a_rows = a.shape[a.ndim - 2];
+    const int a_cols = a.shape[a.ndim - 1];
     int b_rows = 1;
     int b_cols = 1;
     int batch_size = 1;
     int out_ndim = 2;
     int* new_shape = nullptr;
-    const bool batched = a->ndim > 2;
+    const bool batched = a.ndim > 2;
     bool broadcast = false;
 
     if (batched) {
-        if (b->ndim == a->ndim) {
-            b_rows = b->shape[b->ndim - 2];
-            b_cols = b->shape[b->ndim - 1];
+        if (b.ndim == a.ndim) {
+            b_rows = b.shape[b.ndim - 2];
+            b_cols = b.shape[b.ndim - 1];
 
-            for (int d = 0; d < a->ndim - 2; ++d) {
-                if (a->shape[d] != b->shape[d]) {
+            for (int d = 0; d < a.ndim - 2; ++d) {
+                if (a.shape[d] != b.shape[d]) {
                     throw std::invalid_argument("Batch dimensions must match");
                 }
-                batch_size *= a->shape[d];
+                batch_size *= a.shape[d];
             }
-        } else if (b->ndim == a->ndim - 1) {
-            b_rows = b->shape[b->ndim - 1];
+        } else if (b.ndim == a.ndim - 1) {
+            b_rows = b.shape[b.ndim - 1];
 
-            for (int d = 0; d < b->ndim - 1; ++d) {
-                if (a->shape[d] != b->shape[d]) {
+            for (int d = 0; d < b.ndim - 1; ++d) {
+                if (a.shape[d] != b.shape[d]) {
                     throw std::invalid_argument("Batch dimensions must match");
                 }
-                batch_size *= a->shape[d];
+                batch_size *= a.shape[d];
             }
         } else {
             throw std::invalid_argument("Unsupported batched matmul dimensions");
         }
 
-        out_ndim = a->ndim;
+        out_ndim = a.ndim;
         new_shape = new int[out_ndim];
         for (int d = 0; d < out_ndim - 2; ++d) {
-            new_shape[d] = a->shape[d];
+            new_shape[d] = a.shape[d];
         }
         new_shape[out_ndim - 2] = a_rows;
         new_shape[out_ndim - 1] = b_cols;
-    } else if (b->ndim == 1) {
-        b_rows = b->shape[0];
+    } else if (b.ndim == 1) {
+        b_rows = b.shape[0];
         new_shape = new int[2]{a_rows, 1};
-    } else if (a_cols == b->shape[b->ndim - 2]) {
-        b_rows = b->shape[b->ndim - 2];
-        b_cols = b->shape[b->ndim - 1];
-        broadcast = b->ndim > 2;
-        out_ndim = b->ndim;
+    } else if (a_cols == b.shape[b.ndim - 2]) {
+        b_rows = b.shape[b.ndim - 2];
+        b_cols = b.shape[b.ndim - 1];
+        broadcast = b.ndim > 2;
+        out_ndim = b.ndim;
         new_shape = new int[out_ndim];
 
-        for (int d = 0; d < b->ndim - 2; ++d) {
-            new_shape[d] = b->shape[d];
-            batch_size *= b->shape[d];
+        for (int d = 0; d < b.ndim - 2; ++d) {
+            new_shape[d] = b.shape[d];
+            batch_size *= b.shape[d];
         }
         new_shape[out_ndim - 2] = a_rows;
         new_shape[out_ndim - 1] = b_cols;
-    } else if (a_cols == b->shape[b->ndim - 1]) {
-        b_rows = b->shape[b->ndim - 1];
+    } else if (a_cols == b.shape[b.ndim - 1]) {
+        b_rows = b.shape[b.ndim - 1];
         broadcast = true;
-        out_ndim = b->ndim + 1;
+        out_ndim = b.ndim + 1;
         new_shape = new int[out_ndim];
 
-        for (int d = 0; d < b->ndim - 1; ++d) {
-            new_shape[d] = b->shape[d];
-            batch_size *= b->shape[d];
+        for (int d = 0; d < b.ndim - 1; ++d) {
+            new_shape[d] = b.shape[d];
+            batch_size *= b.shape[d];
         }
         new_shape[out_ndim - 2] = a_rows;
         new_shape[out_ndim - 1] = 1;
@@ -275,17 +277,17 @@ Tensor Tensor::matmul(const Tensor* a, const Tensor* b) {
 
     if (batched) {
         launch_batched_mat_mul_kernel(
-            a->data, b->data, out.data,
+            a.tensor_data->data, b.tensor_data->data, out.tensor_data->data,
             batch_size, a_rows, a_cols,  b_cols
         );
     } else if (broadcast) {
         launch_broadcast_mat_mul_kernel(
-            a->data, b->data, out.data,
+            a.tensor_data->data, b.tensor_data->data, out.tensor_data->data,
             batch_size, a_rows, a_cols, b_cols
         );
     } else {
         launch_mat_mul_kernel(
-            a->data, b->data, out.data,
+            a.tensor_data->data, b.tensor_data->data, out.tensor_data->data,
             a_rows, a_cols, b_cols
         );
     }
@@ -294,9 +296,9 @@ Tensor Tensor::matmul(const Tensor* a, const Tensor* b) {
 }
 
 Tensor Tensor::operator+(const Tensor& other) const {
-    return add(this, &other);
+    return add(*this, other);
 }
 
 Tensor Tensor::matmul(const Tensor& other) const {
-    return matmul(this, &other);
+    return matmul(*this, other);
 }
