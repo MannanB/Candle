@@ -37,6 +37,7 @@ struct Tensor {
     static Tensor add(const Tensor& a, const Tensor& b);
     static Tensor uniform(int* shape, int ndim, float min, float max);
     static Tensor ones(int* shape, int ndim);
+    static Tensor zeroes(int* shape, int ndim);
 
     static Tensor matmul(const Tensor& a, const Tensor& b);
 
@@ -45,10 +46,12 @@ struct Tensor {
 
     void backward();
     // void backward(std::shared_ptr<TensorData> inp_grad);
+    void init_grad() const;
+    void accumulate_grad(const Tensor& gradient) const;
 
     // stuff for autograd
     std::shared_ptr<GradFn> grad_fn;
-    std::shared_ptr<Tensor> grad;
+    mutable std::shared_ptr<Tensor> grad;
     bool requires_grad = false;
 
     // so basically data is the only think we pass by ref

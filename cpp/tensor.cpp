@@ -3,7 +3,10 @@
 
 #include <cuda_runtime_api.h>
 
+#include <queue>
 #include <stdexcept>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 #include "kernels/add.h"
@@ -148,7 +151,10 @@ Tensor Tensor::add(const Tensor& a, const Tensor& b) {
         launch_vec_add_kernel(a.tensor_data->data, b.tensor_data->data, out.tensor_data->data, a.tensor_data->size);
         
         if (a.requires_grad || b.requires_grad) {
+            if (a.requires_grad) {a.init_grad();}
+            if (b.requires_grad) {b.init_grad();}
             out.requires_grad = true;
+            out.init_grad();
             out.grad_fn = std::make_shared<AddGradFn>(a, b);
         }
         
@@ -192,7 +198,10 @@ Tensor Tensor::add(const Tensor& a, const Tensor& b) {
     );
 
     if (a.requires_grad || b.requires_grad) {
+        if (a.requires_grad) {a.init_grad();}
+        if (b.requires_grad) {b.init_grad();}
         out.requires_grad = true;
+        out.init_grad();
         out.grad_fn = std::make_shared<AddGradFn>(a, b);
     }
 
@@ -231,6 +240,24 @@ Tensor Tensor::ones(int* shape, int ndim) {
 
     for (int i = 0; i < size; ++i) {
         host_data[i] = 1;
+    }
+    return Tensor(host_data, size, shape, ndim);
+}
+
+Tensor Tensor::zeroes(int* shape, int ndim) {
+    int size = 1;
+    for (int d = 0; d < ndim; ++d) {
+        size *= shape[d];
+    }
+
+    float* host_data = nullptr;
+    CUDA_CHECK(cudaMallocHost(
+        reinterpret_cast<void**>(&host_data),
+        size * sizeof(float)
+    ));
+
+    for (int i = 0; i < size; ++i) {
+        host_data[i] = 0;
     }
     return Tensor(host_data, size, shape, ndim);
 }
@@ -349,7 +376,10 @@ Tensor Tensor::matmul(const Tensor& a, const Tensor& b) {
     }
 
     if (a.requires_grad || b.requires_grad) {
+        if (a.requires_grad) {a.init_grad();}
+        if (b.requires_grad) {b.init_grad();}
         out.requires_grad = true;
+        out.init_grad();
         out.grad_fn = std::make_shared<MatMulGradFn>(a, b);
     }
 
@@ -364,23 +394,78 @@ Tensor Tensor::matmul(const Tensor& other) const {
     return matmul(*this, other);
 }
 
-void Tensor::backward() {
-    if (grad_fn == nullptr || !requires_grad) {return;}
+void Tensor::init_grad() const {
+    if (grad != nullptr) {return;}
 
-    if (grad == nullptr) {
-        int* grad_shape = new int[ndim];
-        for (int d = 0; d < ndim; d++) {
-            grad_shape[d] = shape[d];
+    int* grad_shape = new int[ndim];
+    for (int d = 0; d < ndim; d++) {
+        grad_shape[d] = shape[d];
+    }
+    grad = std::make_shared<Tensor>(Tensor::zeroes(grad_shape, ndim));
+}
+
+void Tensor::accumulate_grad(const Tensor& gradient) const {
+    init_grad();
+    Tensor detached_gradient = gradient;
+    detached_gradient.requires_grad = false;
+    detached_gradient.grad_fn = nullptr;
+    *grad = *grad + detached_gradient;
+}
+
+void Tensor::backward() {
+    if (!requires_grad) {return;}
+
+    init_grad();
+    int* grad_shape = new int[ndim];
+    for (int d = 0; d < ndim; d++) {
+        grad_shape[d] = shape[d];
+    }
+    Tensor start_grad = Tensor::ones(grad_shape, ndim);
+    accumulate_grad(start_grad);
+
+    std::queue<Tensor*> search_queue;
+    std::unordered_set<TensorData*> visited;
+    std::unordered_map<TensorData*, int> pending;
+    std::unordered_map<TensorData*, Tensor*> tensors;
+    search_queue.push(this);
+    tensors[tensor_data.get()] = this;
+
+    while (!search_queue.empty()) {
+        Tensor* current = search_queue.front();
+        search_queue.pop();
+
+        if (!visited.insert(current->tensor_data.get()).second || current->grad_fn == nullptr) {
+            continue;
         }
-        Tensor start_grad = Tensor::ones(grad_shape, ndim);
-        grad = std::make_shared<Tensor>(std::move(start_grad));
+
+        for (Tensor& parent : current->grad_fn->parents) {
+            if (!parent.requires_grad) {continue;}
+            parent.init_grad();
+            pending[parent.tensor_data.get()]++;
+            tensors[parent.tensor_data.get()] = &parent;
+            search_queue.push(&parent);
+        }
     }
 
-    std::vector<Tensor> grads = grad_fn->backward(*grad);
+    std::queue<Tensor*> backward_queue;
+    backward_queue.push(this);
 
-    // DFS backward; probably wont work for all kinds of graphs
-    for (int i=0; i<grad_fn->parents.size(); i++) {
-        grad_fn->parents[i].grad = std::make_shared<Tensor>(std::move(grads[i]));
-        grad_fn->parents[i].backward();
+    while (!backward_queue.empty()) {
+        Tensor* current = backward_queue.front();
+        backward_queue.pop();
+
+        if (current->grad_fn == nullptr) {continue;}
+        std::vector<Tensor> gradients = current->grad_fn->backward(*current->grad);
+
+        for (int i = 0; i < current->grad_fn->parents.size(); i++) {
+            Tensor& parent = current->grad_fn->parents[i];
+            if (!parent.requires_grad) {continue;}
+
+            parent.accumulate_grad(gradients[i]);
+            pending[parent.tensor_data.get()]--;
+            if (pending[parent.tensor_data.get()] == 0) {
+                backward_queue.push(tensors[parent.tensor_data.get()]);
+            }
+        }
     }
 }
