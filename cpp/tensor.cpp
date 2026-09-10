@@ -1,4 +1,5 @@
 #include "tensor.h"
+#include "autograd.h"
 
 #include <cuda_runtime_api.h>
 
@@ -42,24 +43,50 @@ Tensor::Tensor(std::shared_ptr<TensorData> tensor_data, int* shape, int ndim) : 
 
 }
 
-Tensor::Tensor(Tensor&& other) noexcept : tensor_data(std::move(other.tensor_data)), shape(other.shape), ndim(other.ndim), grad_graph(other.grad_graph) {
+Tensor::Tensor(const Tensor& other) : grad_fn(other.grad_fn), grad(other.grad), requires_grad(other.requires_grad), tensor_data(other.tensor_data), shape(new int[other.ndim]), ndim(other.ndim) {
+    for (int d = 0; d < ndim; d++) {
+        shape[d] = other.shape[d];
+    }
+}
+
+Tensor& Tensor::operator=(const Tensor& other) {
+    if (this != &other) {
+        int* new_shape = new int[other.ndim];
+        for (int d = 0; d < other.ndim; d++) {
+            new_shape[d] = other.shape[d];
+        }
+
+        delete[] shape;
+        grad_fn = other.grad_fn;
+        grad = other.grad;
+        requires_grad = other.requires_grad;
+        tensor_data = other.tensor_data;
+        shape = new_shape;
+        ndim = other.ndim;
+    }
+    return *this;
+}
+
+Tensor::Tensor(Tensor&& other) noexcept : grad_fn(std::move(other.grad_fn)), grad(std::move(other.grad)), requires_grad(other.requires_grad), tensor_data(std::move(other.tensor_data)), shape(other.shape), ndim(other.ndim) {
     other.shape = nullptr;
     other.ndim = 0;
-    other.grad_graph = nullptr;
+    other.requires_grad = false;
 }
 
 Tensor& Tensor::operator=(Tensor&& other) noexcept {
     if (this != &other) {
         delete[] shape;
 
+        grad_fn = std::move(other.grad_fn);
+        grad = std::move(other.grad);
+        requires_grad = other.requires_grad;
         tensor_data = std::move(other.tensor_data);
         shape = other.shape;
         ndim = other.ndim;
-        grad_graph = other.grad_graph;
 
         other.shape = nullptr;
         other.ndim = 0;
-        other.grad_graph = nullptr;
+        other.requires_grad = false;
     }
     return *this;
 }
@@ -341,7 +368,11 @@ void Tensor::backward() {
     if (grad_fn == nullptr || !requires_grad) {return;}
 
     if (grad == nullptr) {
-        Tensor start_grad = Tensor::ones(this->shape, this->ndim);
+        int* grad_shape = new int[ndim];
+        for (int d = 0; d < ndim; d++) {
+            grad_shape[d] = shape[d];
+        }
+        Tensor start_grad = Tensor::ones(grad_shape, ndim);
         grad = std::make_shared<Tensor>(std::move(start_grad));
     }
 

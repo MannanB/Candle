@@ -25,11 +25,10 @@ struct Tensor {
     Tensor(int size, int* shape, int ndim);
     Tensor(std::shared_ptr<TensorData> tensor_data, int* shape, int ndim);
 
-    // these prevent copying, but since TensorData is separated should be fine?
-    // Tensor(const Tensor&) = delete; 
-    // Tensor& operator=(const Tensor&) = delete;
-    // Tensor(Tensor&& other) noexcept;
-    // Tensor& operator=(Tensor&& other) noexcept;
+    Tensor(const Tensor& other);
+    Tensor& operator=(const Tensor& other);
+    Tensor(Tensor&& other) noexcept;
+    Tensor& operator=(Tensor&& other) noexcept;
     ~Tensor();
 
     Tensor transpose(int dim1, int dim2) const;
