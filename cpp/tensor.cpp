@@ -384,6 +384,88 @@ Tensor Tensor::sum(int dim) const {
     return out;
 }
 
+Tensor Tensor::flatten() const {
+    int* out_shape = new int[1]{tensor_data->size};
+    Tensor out(tensor_data->size, out_shape, 1);
+    CUDA_CHECK(cudaMemcpy(
+        out.tensor_data->data,
+        tensor_data->data,
+        tensor_data->size * sizeof(float),
+        cudaMemcpyDeviceToDevice
+    ));
+
+    if (requires_grad) {
+        init_grad();
+        out.requires_grad = true;
+        out.init_grad();
+        out.grad_fn = std::make_shared<ReshapeGradFn>(*this);
+    }
+
+    return out;
+}
+
+Tensor Tensor::flatten(int dim1, int dim2) const {
+    if (dim1 < 0 || dim2 >= ndim || dim2 != dim1 + 1) {
+        throw std::invalid_argument(
+            "Flatten dimensions must be consecutive and in range"
+        );
+    }
+
+    const int out_ndim = ndim - 1;
+    int* out_shape = new int[out_ndim];
+
+    for (int source_dim = 0, output_dim = 0; source_dim < ndim; ++source_dim) {
+        if (source_dim == dim1) {
+            out_shape[output_dim++] = shape[dim1] * shape[dim2];
+        } else if (source_dim != dim2) {
+            out_shape[output_dim++] = shape[source_dim];
+        }
+    }
+
+    Tensor out(tensor_data->size, out_shape, out_ndim);
+    CUDA_CHECK(cudaMemcpy(
+        out.tensor_data->data,
+        tensor_data->data,
+        tensor_data->size * sizeof(float),
+        cudaMemcpyDeviceToDevice
+    ));
+
+    if (requires_grad) {
+        init_grad();
+        out.requires_grad = true;
+        out.init_grad();
+        out.grad_fn = std::make_shared<ReshapeGradFn>(*this);
+    }
+
+    return out;
+}
+
+Tensor Tensor::unsqueeze() const {
+    const int out_ndim = ndim + 1;
+    int* out_shape = new int[out_ndim];
+    for (int d = 0; d < ndim; ++d) {
+        out_shape[d] = shape[d];
+    }
+    out_shape[ndim] = 1;
+
+    Tensor out(tensor_data->size, out_shape, out_ndim);
+    CUDA_CHECK(cudaMemcpy(
+        out.tensor_data->data,
+        tensor_data->data,
+        tensor_data->size * sizeof(float),
+        cudaMemcpyDeviceToDevice
+    ));
+
+    if (requires_grad) {
+        init_grad();
+        out.requires_grad = true;
+        out.init_grad();
+        out.grad_fn = std::make_shared<ReshapeGradFn>(*this);
+    }
+
+    return out;
+}
+
 
 Tensor Tensor::matmul(const Tensor& a, const Tensor& b) {
     if (a.ndim < 2 || b.ndim < 1) {
@@ -518,6 +600,28 @@ Tensor Tensor::matmul(const Tensor& other) const {
     return matmul(*this, other);
 }
 
+void Tensor::inplace_add(const Tensor& other) {
+    if (ndim != other.ndim) {
+        throw std::invalid_argument(
+            "In-place addition requires tensors with the same shape"
+        );
+    }
+
+    for (int d = 0; d < ndim; ++d) {
+        if (shape[d] != other.shape[d]) {
+            throw std::invalid_argument(
+                "In-place addition requires tensors with the same shape"
+            );
+        }
+    }
+
+    launch_inplace_vec_add_kernel(
+        tensor_data->data,
+        other.tensor_data->data,
+        tensor_data->size
+    );
+}
+
 void Tensor::init_grad() const {
     if (grad != nullptr) {return;}
 
@@ -527,6 +631,13 @@ void Tensor::init_grad() const {
     }
     grad = std::make_shared<Tensor>(Tensor::zeroes(grad_shape, ndim));
 }
+
+void Tensor::zero_grad() const {
+    if (grad == nullptr) {return;}
+    
+    CUDA_CHECK(cudaMemset(grad->tensor_data->data, 0, grad->tensor_data->size * sizeof(float)));
+}
+
 
 void Tensor::accumulate_grad(const Tensor& gradient) const {
     init_grad();

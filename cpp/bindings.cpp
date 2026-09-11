@@ -173,6 +173,56 @@ py::array_t<float> tensor_to_numpy(const Tensor& tensor) {
     return output;
 }
 
+py::object tensor_data_to_list(
+    const std::vector<float>& data,
+    const int* shape,
+    int ndim,
+    int dimension,
+    int& flat_index
+) {
+    if (ndim == 0) {
+        return py::float_(data[0]);
+    }
+
+    py::list output;
+    if (dimension == ndim - 1) {
+        for (int i = 0; i < shape[dimension]; ++i) {
+            output.append(data[flat_index++]);
+        }
+    } else {
+        for (int i = 0; i < shape[dimension]; ++i) {
+            output.append(tensor_data_to_list(
+                data,
+                shape,
+                ndim,
+                dimension + 1,
+                flat_index
+            ));
+        }
+    }
+
+    return output;
+}
+
+py::object tensor_to_list(const Tensor& tensor) {
+    std::vector<float> host_data(tensor.tensor_data->size);
+    CUDA_CHECK(cudaMemcpy(
+        host_data.data(),
+        tensor.tensor_data->data,
+        tensor.tensor_data->size * sizeof(float),
+        cudaMemcpyDeviceToHost
+    ));
+
+    int flat_index = 0;
+    return tensor_data_to_list(
+        host_data,
+        tensor.shape,
+        tensor.ndim,
+        0,
+        flat_index
+    );
+}
+
 py::list tensor_shape(const Tensor& tensor) {
     py::list result;
     for (int i = 0; i < tensor.ndim; ++i) {
@@ -261,6 +311,7 @@ PYBIND11_MODULE(_candle, module, py::mod_gil_not_used()) {
             py::arg("requires_grad") = false
         )
         .def("numpy", &tensor_to_numpy)
+        .def("tolist", &tensor_to_list)
         .def_property_readonly("shape", &tensor_shape)
         .def_readwrite("requires_grad", &Tensor::requires_grad)
         .def_property_readonly("grad", [](const Tensor& tensor) {
@@ -270,6 +321,7 @@ PYBIND11_MODULE(_candle, module, py::mod_gil_not_used()) {
             return tensor.grad_fn == nullptr;
         })
         .def("backward", &Tensor::backward)
+        .def("inplace_add", &Tensor::inplace_add, py::arg("other"))
         .def(py::self + py::self)
         .def(py::self - py::self)
         .def(py::self * float())
@@ -280,6 +332,17 @@ PYBIND11_MODULE(_candle, module, py::mod_gil_not_used()) {
             py::arg("dim2")
         )
         .def("sum", &Tensor::sum, py::arg("dim"))
+        .def(
+            "flatten",
+            py::overload_cast<>(&Tensor::flatten, py::const_)
+        )
+        .def(
+            "flatten",
+            py::overload_cast<int, int>(&Tensor::flatten, py::const_),
+            py::arg("dim1"),
+            py::arg("dim2")
+        )
+        .def("unsqueeze", &Tensor::unsqueeze)
         .def(
             "matmul",
             py::overload_cast<const Tensor&>(&Tensor::matmul, py::const_),

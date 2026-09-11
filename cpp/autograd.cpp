@@ -79,3 +79,21 @@ std::vector<Tensor> MSEGradFn::backward(const Tensor& output_gradient) {
 
     return {dLdPred, dLdReal};
 }
+
+ReshapeGradFn::ReshapeGradFn(Tensor input) {
+    parents = {input};
+}
+
+std::vector<Tensor> ReshapeGradFn::backward(const Tensor& output_gradient) {
+    int* input_shape = new int[parents[0].ndim];
+    for (int d = 0; d < parents[0].ndim; ++d) {
+        input_shape[d] = parents[0].shape[d];
+    }
+
+    Tensor input_gradient(
+        output_gradient.tensor_data,
+        input_shape,
+        parents[0].ndim
+    );
+    return {input_gradient};
+}

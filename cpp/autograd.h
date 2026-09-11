@@ -39,3 +39,8 @@ struct MSEGradFn : GradFn {
     MSEGradFn(Tensor pred, Tensor real, int N);
     std::vector<Tensor> backward(const Tensor& output_gradient);
 };
+
+struct ReshapeGradFn : GradFn {
+    ReshapeGradFn(Tensor input);
+    std::vector<Tensor> backward(const Tensor& output_gradient);
+};

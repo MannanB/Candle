@@ -33,6 +33,9 @@ struct Tensor {
 
     Tensor transpose(int dim1, int dim2) const;
     Tensor sum(int dim) const;
+    Tensor flatten() const;
+    Tensor flatten(int dim1, int dim2) const;
+    Tensor unsqueeze() const;
 
     static Tensor add(const Tensor& a, const Tensor& b);
     static Tensor subtract(const Tensor& a, const Tensor& b);
@@ -47,10 +50,12 @@ struct Tensor {
     Tensor operator-(const Tensor& other) const;
     Tensor operator*(float scalar) const;
     Tensor matmul(const Tensor& other) const;
+    void inplace_add(const Tensor& other);
 
     void backward();
     // void backward(std::shared_ptr<TensorData> inp_grad);
     void init_grad() const;
+    void zero_grad() const;
     void accumulate_grad(const Tensor& gradient) const;
 
     // stuff for autograd
