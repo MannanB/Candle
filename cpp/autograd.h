@@ -1,5 +1,7 @@
 #pragma once
 #include "tensor.h"
+#include "kernels/activation/relu_bwd.h"
+#include "kernels/loss/mse_bwd.h"
 
 struct GradFn {
     std::vector<Tensor> parents;
@@ -18,5 +20,22 @@ struct MatMulGradFn : GradFn {
 
 struct AddGradFn : GradFn {
     AddGradFn(Tensor left, Tensor right);
+    std::vector<Tensor> backward(const Tensor& output_gradient);
+};
+
+
+struct ReluGradFn : GradFn {
+    ReluGradFn(Tensor input);
+    std::vector<Tensor> backward(const Tensor& output_gradient);
+};
+
+struct SoftmaxGradFn : GradFn {
+    SoftmaxGradFn(Tensor input);
+    std::vector<Tensor> backward(const Tensor& output_gradient);
+};
+
+struct MSEGradFn : GradFn {
+    int N;
+    MSEGradFn(Tensor pred, Tensor real, int N);
     std::vector<Tensor> backward(const Tensor& output_gradient);
 };

@@ -9,7 +9,9 @@
 #include <string>
 #include <vector>
 
+#include "activations.h"
 #include "layers.h"
+#include "losses.h"
 #include "tensor.h"
 #include "utils.h"
 
@@ -214,7 +216,19 @@ std::string tensor_repr(const Tensor& tensor) {
     }
     shape_string += ")";
 
-    return "<Tensor shape=" + shape_string + " data=" + data_string + ">";
+    std::string result =
+        "<Tensor shape=" + shape_string + " data=" + data_string;
+
+    if (tensor.requires_grad) {
+        result += " grad=";
+        if (tensor.grad == nullptr) {
+            result += "None";
+        } else {
+            result += tensor_repr(*tensor.grad);
+        }
+    }
+
+    return result + ">";
 }
 
 }  // namespace
@@ -257,18 +271,38 @@ PYBIND11_MODULE(_candle, module, py::mod_gil_not_used()) {
         })
         .def("backward", &Tensor::backward)
         .def(py::self + py::self)
+        .def(py::self - py::self)
+        .def(py::self * float())
         .def(
             "transpose",
             &Tensor::transpose,
             py::arg("dim1"),
             py::arg("dim2")
         )
+        .def("sum", &Tensor::sum, py::arg("dim"))
         .def(
             "matmul",
             py::overload_cast<const Tensor&>(&Tensor::matmul, py::const_),
             py::arg("other")
         )
         .def("__repr__", &tensor_repr);
+
+    py::class_<Activations>(module, "Activations")
+        .def_static("relu", &Activations::relu, py::arg("input"))
+        .def_static(
+            "softmax",
+            &Activations::softmax,
+            py::arg("input"),
+            py::arg("dim")
+        );
+
+    py::class_<Losses>(module, "Losses")
+        .def_static(
+            "mse",
+            &Losses::mse,
+            py::arg("prediction"),
+            py::arg("target")
+        );
 
     py::class_<Linear>(module, "Linear")
         .def(

@@ -1,0 +1,13 @@
+#pragma once
+
+#include <cuda_runtime_api.h>
+#include <memory.h>
+#include <cstdlib>
+#include <ctime>
+#include <stdio.h>
+#include <cuda/cmath>
+
+
+#include "utils.h"
+
+void launch_relu_kernel(float* A, float* C, int size);

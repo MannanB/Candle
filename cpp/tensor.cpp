@@ -9,12 +9,16 @@
 #include <unordered_set>
 #include <utility>
 
-#include "kernels/add.h"
-#include "kernels/batched_gemm.h"
-#include "kernels/broadcast_add.h"
-#include "kernels/broadcast_gemm.h"
-#include "kernels/gemm.h"
-#include "kernels/transpose.h"
+#include "kernels/tensor/add.h"
+#include "kernels/tensor/batched_gemm.h"
+#include "kernels/tensor/broadcast_add.h"
+#include "kernels/tensor/broadcast_gemm.h"
+#include "kernels/tensor/broadcast_subtract.h"
+#include "kernels/tensor/gemm.h"
+#include "kernels/tensor/scalar_multiply.h"
+#include "kernels/tensor/subtract.h"
+#include "kernels/tensor/sum_reduce.h"
+#include "kernels/tensor/transpose.h"
 #include "utils.h"
 
 TensorData::~TensorData() {
@@ -208,6 +212,88 @@ Tensor Tensor::add(const Tensor& a, const Tensor& b) {
     return out;
 }
 
+Tensor Tensor::scalar_multiply(const Tensor& input, float scalar) {
+    int* out_shape = new int[input.ndim];
+    for (int d = 0; d < input.ndim; ++d) {
+        out_shape[d] = input.shape[d];
+    }
+
+    Tensor out(input.tensor_data->size, out_shape, input.ndim);
+    launch_scalar_multiply_kernel(
+        input.tensor_data->data,
+        scalar,
+        out.tensor_data->data,
+        input.tensor_data->size
+    );
+    return out;
+}
+
+Tensor Tensor::subtract(const Tensor& a, const Tensor& b) {
+    bool same_shape = a.ndim == b.ndim;
+    if (same_shape) {
+        for (int d = 0; d < a.ndim; ++d) {
+            if (a.shape[d] != b.shape[d]) {
+                same_shape = false;
+                break;
+            }
+        }
+    }
+
+    if (same_shape) {
+        int* out_shape = new int[a.ndim];
+        for (int d = 0; d < a.ndim; ++d) {
+            out_shape[d] = a.shape[d];
+        }
+
+        Tensor out(a.tensor_data->size, out_shape, a.ndim);
+        launch_vec_subtract_kernel(
+            a.tensor_data->data,
+            b.tensor_data->data,
+            out.tensor_data->data,
+            a.tensor_data->size
+        );
+        return out;
+    }
+
+    const Tensor* batched = a.tensor_data->size > b.tensor_data->size ? &a : &b;
+    const Tensor* broadcasted = a.tensor_data->size > b.tensor_data->size ? &b : &a;
+
+    if (broadcasted->ndim >= batched->ndim || batched->tensor_data->size % broadcasted->tensor_data->size != 0) {
+        throw std::invalid_argument(
+            "Tensor shapes cannot be broadcast for subtraction"
+        );
+    }
+
+    const int dim_offset = batched->ndim - broadcasted->ndim;
+    for (int d = 0; d < broadcasted->ndim; ++d) {
+        if (batched->shape[dim_offset + d] != broadcasted->shape[d]) {
+            throw std::invalid_argument(
+                "Tensor shapes cannot be broadcast for subtraction"
+            );
+        }
+    }
+
+    int* out_shape = new int[batched->ndim];
+    for (int d = 0; d < batched->ndim; ++d) {
+        out_shape[d] = batched->shape[d];
+    }
+
+    Tensor out(
+        batched->tensor_data->size,
+        out_shape,
+        batched->ndim
+    );
+    launch_broadcast_vec_subtract_kernel(
+        a.tensor_data->data,
+        b.tensor_data->data,
+        out.tensor_data->data,
+        a.tensor_data->size,
+        b.tensor_data->size,
+        out.tensor_data->size
+    );
+    return out;
+}
+
 Tensor Tensor::uniform(int* shape, int ndim, float min, float max) {
     int size = 1;
     for (int d = 0; d < ndim; ++d) {
@@ -263,9 +349,39 @@ Tensor Tensor::zeroes(int* shape, int ndim) {
 }
 
 Tensor Tensor::sum(int dim) const {
-    // sum across dim
-    // TODO: implement
-    throw std::logic_error("Tensor::sum is not implemented");
+    if (dim < 0 || dim >= ndim) {
+        throw std::invalid_argument("Sum dimension is out of range");
+    }
+
+    int prefix_dim = 1;
+    for (int d = 0; d < dim; ++d) {
+        prefix_dim *= shape[d];
+    }
+
+    const int reduce_dim = shape[dim];
+
+    int suffix_dim = 1;
+    for (int d = dim + 1; d < ndim; ++d) {
+        suffix_dim *= shape[d];
+    }
+
+    const int out_ndim = ndim - 1;
+    int* out_shape = new int[out_ndim];
+    for (int source_dim = 0, output_dim = 0; source_dim < ndim; ++source_dim) {
+        if (source_dim != dim) {
+            out_shape[output_dim++] = shape[source_dim];
+        }
+    }
+
+    Tensor out(prefix_dim * suffix_dim, out_shape, out_ndim);
+    launch_sum_reduce_kernel(
+        tensor_data->data,
+        out.tensor_data->data,
+        prefix_dim,
+        reduce_dim,
+        suffix_dim
+    );
+    return out;
 }
 
 
@@ -388,6 +504,14 @@ Tensor Tensor::matmul(const Tensor& a, const Tensor& b) {
 
 Tensor Tensor::operator+(const Tensor& other) const {
     return add(*this, other);
+}
+
+Tensor Tensor::operator-(const Tensor& other) const {
+    return subtract(*this, other);
+}
+
+Tensor Tensor::operator*(float scalar) const {
+    return scalar_multiply(*this, scalar);
 }
 
 Tensor Tensor::matmul(const Tensor& other) const {

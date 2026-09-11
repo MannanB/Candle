@@ -28,3 +28,54 @@ std::vector<Tensor> AddGradFn::backward(const Tensor& output_gradient) {
 
     return {left_gradient, right_gradient};
 }
+
+ReluGradFn::ReluGradFn(Tensor input) {
+    parents = {input};
+}
+
+std::vector<Tensor> ReluGradFn::backward(const Tensor& output_gradient) {
+    int* out_shape = new int[output_gradient.ndim];
+    for (int d = 0; d < output_gradient.ndim; ++d) {
+        out_shape[d] = output_gradient.shape[d];
+    }
+
+    Tensor out(output_gradient.tensor_data->size, out_shape, output_gradient.ndim);
+    launch_relu_bwd_kernel(parents[0].tensor_data->data, output_gradient.tensor_data->data, out.tensor_data->data, out.tensor_data->size);
+    return {out};
+}
+
+SoftmaxGradFn::SoftmaxGradFn(Tensor input) {
+    parents = {input};
+}
+
+std::vector<Tensor> SoftmaxGradFn::backward(const Tensor& output_gradient) {
+    // TODO: implement? or maybe just fuse it with ce
+    return {}; 
+}
+
+MSEGradFn::MSEGradFn(Tensor pred, Tensor real, int N) : N(N) {
+    parents = {pred, real};
+}
+
+std::vector<Tensor> MSEGradFn::backward(const Tensor& output_gradient) {
+    int* pred_shape = new int[parents[0].ndim];
+    int* real_shape = new int[parents[1].ndim];
+    for (int d = 0; d < parents[0].ndim; ++d) {
+        pred_shape[d] = parents[0].shape[d];
+        real_shape[d] = parents[1].shape[d];
+    }
+
+    Tensor dLdPred(N, pred_shape, parents[0].ndim);
+    Tensor dLdReal(N, real_shape, parents[1].ndim);
+
+    launch_mse_bwd_kernel(
+        parents[0].tensor_data->data,
+        parents[1].tensor_data->data,
+        output_gradient.tensor_data->data,
+        dLdPred.tensor_data->data,
+        dLdReal.tensor_data->data,
+        N
+    );
+
+    return {dLdPred, dLdReal};
+}

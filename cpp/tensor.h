@@ -35,6 +35,8 @@ struct Tensor {
     Tensor sum(int dim) const;
 
     static Tensor add(const Tensor& a, const Tensor& b);
+    static Tensor subtract(const Tensor& a, const Tensor& b);
+    static Tensor scalar_multiply(const Tensor& input, float scalar);
     static Tensor uniform(int* shape, int ndim, float min, float max);
     static Tensor ones(int* shape, int ndim);
     static Tensor zeroes(int* shape, int ndim);
@@ -42,6 +44,8 @@ struct Tensor {
     static Tensor matmul(const Tensor& a, const Tensor& b);
 
     Tensor operator+(const Tensor& other) const;
+    Tensor operator-(const Tensor& other) const;
+    Tensor operator*(float scalar) const;
     Tensor matmul(const Tensor& other) const;
 
     void backward();

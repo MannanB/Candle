@@ -16,16 +16,27 @@ find_package(CUDAToolkit REQUIRED)
 pybind11_add_module(
     _candle
     cpp/bindings.cpp
+    cpp/activations.cpp
     cpp/autograd.cpp
     cpp/layers.cpp
+    cpp/losses.cpp
     cpp/tensor.cpp
     cpp/utils.cpp
-    cpp/kernels/add.cu
-    cpp/kernels/broadcast_add.cu
-    cpp/kernels/transpose.cu
-    cpp/kernels/gemm.cu
-    cpp/kernels/batched_gemm.cu
-    cpp/kernels/broadcast_gemm.cu
+    cpp/kernels/tensor/add.cu
+    cpp/kernels/tensor/subtract.cu
+    cpp/kernels/activation/relu.cu
+    cpp/kernels/activation/relu_bwd.cu
+    cpp/kernels/loss/mse.cu
+    cpp/kernels/loss/mse_bwd.cu
+    cpp/kernels/tensor/scalar_multiply.cu
+    cpp/kernels/activation/softmax.cu
+    cpp/kernels/tensor/broadcast_add.cu
+    cpp/kernels/tensor/broadcast_subtract.cu
+    cpp/kernels/tensor/transpose.cu
+    cpp/kernels/tensor/gemm.cu
+    cpp/kernels/tensor/sum_reduce.cu
+    cpp/kernels/tensor/batched_gemm.cu
+    cpp/kernels/tensor/broadcast_gemm.cu
 )
 
 target_include_directories(

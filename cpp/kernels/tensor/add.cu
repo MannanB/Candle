@@ -19,6 +19,5 @@ void launch_vec_add_kernel(float* A, float* B, float* C, int size) {
     vec_add_kernel<<<blocks, threads>>>(A, B, C, size);
 
     CUDA_CHECK(cudaGetLastError());
-    CUDA_CHECK(cudaDeviceSynchronize());
 
 }

@@ -24,6 +24,5 @@ void launch_broadcast_vec_add_kernel(float* A, float* B, float* C, int size, int
     vec_add_kernel<<<numBlocks, threads>>>(A, B, C, size, batch_dim);
 
     CUDA_CHECK(cudaGetLastError());
-    CUDA_CHECK(cudaDeviceSynchronize());
 
 }
