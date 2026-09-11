@@ -1,6 +1,8 @@
-# Candle: torch but candle (very wip)
+# Candle: torch but candle (wip)
 
 A simpler recreation of pytorch with cuda kernels from scratch (no AI for kernels)
+
+Candle now works standalone! An example training an mnist classifier is in python/mnist. Lots more coming soon
 
 ## Layout
 
