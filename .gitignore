@@ -2,3 +2,4 @@ build/
 .venv/
 python/mnist/data
 __pycache__
+.vscode/
