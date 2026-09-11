@@ -10,4 +10,4 @@
 
 #include "utils.h"
 
-void launch_broadcast_vec_add_kernel(float* A, float* B, float* C, int size, int batch_dim);
+void launch_broadcast_vec_add_kernel(float* A, float* B, float* C, float A_factor, float B_factor, int A_size, int B_size, int output_size);

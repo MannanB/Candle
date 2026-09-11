@@ -11,13 +11,13 @@ std::vector<Tensor> MatMulGradFn::backward(const Tensor& output_gradient) {
     return {dLdLeft, dLdRight};
 }
 
-AddGradFn::AddGradFn(Tensor left, Tensor right) {
+AddGradFn::AddGradFn(Tensor left, Tensor right, float left_factor, float right_factor) : left_factor(left_factor), right_factor(right_factor) {
     parents = {left, right};
 }
 
 std::vector<Tensor> AddGradFn::backward(const Tensor& output_gradient) {    
-    Tensor left_gradient = output_gradient;
-    Tensor right_gradient = output_gradient;
+    Tensor left_gradient = output_gradient * left_factor;
+    Tensor right_gradient = output_gradient * right_factor;
 
     while (left_gradient.ndim > parents[0].ndim) {
         left_gradient = left_gradient.sum(0);

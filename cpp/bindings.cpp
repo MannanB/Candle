@@ -321,7 +321,22 @@ PYBIND11_MODULE(_candle, module, py::mod_gil_not_used()) {
             return tensor.grad_fn == nullptr;
         })
         .def("backward", &Tensor::backward)
-        .def("inplace_add", &Tensor::inplace_add, py::arg("other"))
+        .def(
+            "add",
+            [](const Tensor& self, const Tensor& other, float self_factor, float other_factor) {
+                return Tensor::add(self, other, self_factor, other_factor);
+            },
+            py::arg("other"),
+            py::arg("self_factor") = 1.0f,
+            py::arg("other_factor") = 1.0f
+        )
+        .def(
+            "inplace_add",
+            &Tensor::inplace_add,
+            py::arg("other"),
+            py::arg("self_factor") = 1.0f,
+            py::arg("other_factor") = 1.0f
+        )
         .def(py::self + py::self)
         .def(py::self - py::self)
         .def(py::self * float())

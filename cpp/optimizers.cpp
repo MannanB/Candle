@@ -15,9 +15,12 @@ SGD::SGD(float lr) : lr(lr) {}
 
 void SGD::step() {
     for (Tensor param: parameters) {
-        launch_inplace_vec_add_kernel(
+        launch_vec_add_kernel(
             param.tensor_data->data,
             param.grad->tensor_data->data,
+            param.tensor_data->data,
+            1.0,
+            -lr,
             param.tensor_data->size
         );
     }

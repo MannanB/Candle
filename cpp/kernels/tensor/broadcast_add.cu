@@ -2,26 +2,21 @@
 
 
 
-__global__ void vec_add_kernel(float* A, float* B, float* C, int vectorLength, int batch_size) {
-    const int batch = blockIdx.y;
-
+__global__ void broadcast_vec_add_kernel(float* A, float* B, float* C, float A_factor, float B_factor, int A_size, int B_size, int output_size) {
     int workIndex = threadIdx.x + blockIdx.x * blockDim.x;
 
-    if(workIndex < vectorLength)
+    if(workIndex < output_size)
     {
-        C[batch * vectorLength + workIndex] = A[batch * vectorLength + workIndex] + B[workIndex];
+        C[workIndex] = A_factor * A[workIndex % A_size] + B_factor * B[workIndex % B_size];
     }
 }
 
-void launch_broadcast_vec_add_kernel(float* A, float* B, float* C, int size, int batch_dim) {
+void launch_broadcast_vec_add_kernel(float* A, float* B, float* C, float A_factor, float B_factor, int A_size, int B_size, int output_size) {
     // assumes A and B are already on device
-    // B is batch_size x size
     int threads = 256;
+    int blocks = cuda::ceil_div(output_size, threads);
 
-    dim3 numBlocks(cuda::ceil_div(size, threads), batch_dim);
-
-
-    vec_add_kernel<<<numBlocks, threads>>>(A, B, C, size, batch_dim);
+    broadcast_vec_add_kernel<<<blocks, threads>>>(A, B, C, A_factor, B_factor, A_size, B_size, output_size);
 
     CUDA_CHECK(cudaGetLastError());
 

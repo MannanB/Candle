@@ -1,3 +1,4 @@
 build/
 .venv/
 python/mnist/data
+__pycache__

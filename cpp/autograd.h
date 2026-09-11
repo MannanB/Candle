@@ -19,7 +19,9 @@ struct MatMulGradFn : GradFn {
 };
 
 struct AddGradFn : GradFn {
-    AddGradFn(Tensor left, Tensor right);
+    float left_factor;
+    float right_factor;
+    AddGradFn(Tensor left, Tensor right, float left_factor, float right_factor);
     std::vector<Tensor> backward(const Tensor& output_gradient);
 };
 

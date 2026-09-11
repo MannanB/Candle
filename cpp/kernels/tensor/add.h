@@ -10,5 +10,4 @@
 
 #include "utils.h"
 
-void launch_vec_add_kernel(float* A, float* B, float* C, int size);
-void launch_inplace_vec_add_kernel(float* A, float* B, int size);
+void launch_vec_add_kernel(float* A, float* B, float* C, float A_factor, float B_factor, int size);

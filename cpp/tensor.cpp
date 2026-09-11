@@ -13,10 +13,8 @@
 #include "kernels/tensor/batched_gemm.h"
 #include "kernels/tensor/broadcast_add.h"
 #include "kernels/tensor/broadcast_gemm.h"
-#include "kernels/tensor/broadcast_subtract.h"
 #include "kernels/tensor/gemm.h"
 #include "kernels/tensor/scalar_multiply.h"
-#include "kernels/tensor/subtract.h"
 #include "kernels/tensor/sum_reduce.h"
 #include "kernels/tensor/transpose.h"
 #include "utils.h"
@@ -134,7 +132,7 @@ Tensor Tensor::transpose(int dim1, int dim2) const {
     return out;
 }
 
-Tensor Tensor::add(const Tensor& a, const Tensor& b) {
+Tensor Tensor::add(const Tensor& a, const Tensor& b, float A_factor, float B_factor) {
     bool same_shape = a.ndim == b.ndim;
     if (same_shape) {
         for (int d = 0; d < a.ndim; ++d) {
@@ -152,14 +150,14 @@ Tensor Tensor::add(const Tensor& a, const Tensor& b) {
         }
 
         Tensor out(a.tensor_data->size, out_shape, a.ndim);
-        launch_vec_add_kernel(a.tensor_data->data, b.tensor_data->data, out.tensor_data->data, a.tensor_data->size);
+        launch_vec_add_kernel(a.tensor_data->data, b.tensor_data->data, out.tensor_data->data, A_factor, B_factor, a.tensor_data->size);
         
         if (a.requires_grad || b.requires_grad) {
             if (a.requires_grad) {a.init_grad();}
             if (b.requires_grad) {b.init_grad();}
             out.requires_grad = true;
             out.init_grad();
-            out.grad_fn = std::make_shared<AddGradFn>(a, b);
+            out.grad_fn = std::make_shared<AddGradFn>(a, b, A_factor, B_factor);
         }
         
         return out;
@@ -194,11 +192,14 @@ Tensor Tensor::add(const Tensor& a, const Tensor& b) {
         batched->ndim
     );
     launch_broadcast_vec_add_kernel(
-        batched->tensor_data->data,
-        broadcasted->tensor_data->data,
+        a.tensor_data->data,
+        b.tensor_data->data,
         out.tensor_data->data,
-        broadcasted->tensor_data->size,
-        batched->tensor_data->size / broadcasted->tensor_data->size
+        A_factor,
+        B_factor,
+        a.tensor_data->size,
+        b.tensor_data->size,
+        out.tensor_data->size
     );
 
     if (a.requires_grad || b.requires_grad) {
@@ -206,7 +207,7 @@ Tensor Tensor::add(const Tensor& a, const Tensor& b) {
         if (b.requires_grad) {b.init_grad();}
         out.requires_grad = true;
         out.init_grad();
-        out.grad_fn = std::make_shared<AddGradFn>(a, b);
+        out.grad_fn = std::make_shared<AddGradFn>(a, b, A_factor, B_factor);
     }
 
     return out;
@@ -229,69 +230,7 @@ Tensor Tensor::scalar_multiply(const Tensor& input, float scalar) {
 }
 
 Tensor Tensor::subtract(const Tensor& a, const Tensor& b) {
-    bool same_shape = a.ndim == b.ndim;
-    if (same_shape) {
-        for (int d = 0; d < a.ndim; ++d) {
-            if (a.shape[d] != b.shape[d]) {
-                same_shape = false;
-                break;
-            }
-        }
-    }
-
-    if (same_shape) {
-        int* out_shape = new int[a.ndim];
-        for (int d = 0; d < a.ndim; ++d) {
-            out_shape[d] = a.shape[d];
-        }
-
-        Tensor out(a.tensor_data->size, out_shape, a.ndim);
-        launch_vec_subtract_kernel(
-            a.tensor_data->data,
-            b.tensor_data->data,
-            out.tensor_data->data,
-            a.tensor_data->size
-        );
-        return out;
-    }
-
-    const Tensor* batched = a.tensor_data->size > b.tensor_data->size ? &a : &b;
-    const Tensor* broadcasted = a.tensor_data->size > b.tensor_data->size ? &b : &a;
-
-    if (broadcasted->ndim >= batched->ndim || batched->tensor_data->size % broadcasted->tensor_data->size != 0) {
-        throw std::invalid_argument(
-            "Tensor shapes cannot be broadcast for subtraction"
-        );
-    }
-
-    const int dim_offset = batched->ndim - broadcasted->ndim;
-    for (int d = 0; d < broadcasted->ndim; ++d) {
-        if (batched->shape[dim_offset + d] != broadcasted->shape[d]) {
-            throw std::invalid_argument(
-                "Tensor shapes cannot be broadcast for subtraction"
-            );
-        }
-    }
-
-    int* out_shape = new int[batched->ndim];
-    for (int d = 0; d < batched->ndim; ++d) {
-        out_shape[d] = batched->shape[d];
-    }
-
-    Tensor out(
-        batched->tensor_data->size,
-        out_shape,
-        batched->ndim
-    );
-    launch_broadcast_vec_subtract_kernel(
-        a.tensor_data->data,
-        b.tensor_data->data,
-        out.tensor_data->data,
-        a.tensor_data->size,
-        b.tensor_data->size,
-        out.tensor_data->size
-    );
-    return out;
+    return add(a, b, 1.0f, -1.0f);
 }
 
 Tensor Tensor::uniform(int* shape, int ndim, float min, float max) {
@@ -589,7 +528,7 @@ Tensor Tensor::operator+(const Tensor& other) const {
 }
 
 Tensor Tensor::operator-(const Tensor& other) const {
-    return subtract(*this, other);
+    return add(*this, other, 1.0f, -1.0f);
 }
 
 Tensor Tensor::operator*(float scalar) const {
@@ -600,7 +539,7 @@ Tensor Tensor::matmul(const Tensor& other) const {
     return matmul(*this, other);
 }
 
-void Tensor::inplace_add(const Tensor& other) {
+void Tensor::inplace_add(const Tensor& other, float self_factor, float other_factor) {
     if (ndim != other.ndim) {
         throw std::invalid_argument(
             "In-place addition requires tensors with the same shape"
@@ -615,9 +554,12 @@ void Tensor::inplace_add(const Tensor& other) {
         }
     }
 
-    launch_inplace_vec_add_kernel(
+    launch_vec_add_kernel(
         tensor_data->data,
         other.tensor_data->data,
+        tensor_data->data,
+        self_factor,
+        other_factor,
         tensor_data->size
     );
 }
@@ -641,10 +583,7 @@ void Tensor::zero_grad() const {
 
 void Tensor::accumulate_grad(const Tensor& gradient) const {
     init_grad();
-    Tensor detached_gradient = gradient;
-    detached_gradient.requires_grad = false;
-    detached_gradient.grad_fn = nullptr;
-    *grad = *grad + detached_gradient;
+    grad->inplace_add(gradient);
 }
 
 void Tensor::backward() {

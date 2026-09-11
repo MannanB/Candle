@@ -23,7 +23,6 @@ pybind11_add_module(
     cpp/tensor.cpp
     cpp/utils.cpp
     cpp/kernels/tensor/add.cu
-    cpp/kernels/tensor/subtract.cu
     cpp/kernels/activation/relu.cu
     cpp/kernels/activation/relu_bwd.cu
     cpp/kernels/loss/mse.cu
@@ -31,7 +30,6 @@ pybind11_add_module(
     cpp/kernels/tensor/scalar_multiply.cu
     cpp/kernels/activation/softmax.cu
     cpp/kernels/tensor/broadcast_add.cu
-    cpp/kernels/tensor/broadcast_subtract.cu
     cpp/kernels/tensor/transpose.cu
     cpp/kernels/tensor/gemm.cu
     cpp/kernels/tensor/sum_reduce.cu

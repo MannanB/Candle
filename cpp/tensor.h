@@ -37,7 +37,7 @@ struct Tensor {
     Tensor flatten(int dim1, int dim2) const;
     Tensor unsqueeze() const;
 
-    static Tensor add(const Tensor& a, const Tensor& b);
+    static Tensor add(const Tensor& a, const Tensor& b, float A_factor = 1.0f, float B_factor = 1.0f);
     static Tensor subtract(const Tensor& a, const Tensor& b);
     static Tensor scalar_multiply(const Tensor& input, float scalar);
     static Tensor uniform(int* shape, int ndim, float min, float max);
@@ -50,7 +50,7 @@ struct Tensor {
     Tensor operator-(const Tensor& other) const;
     Tensor operator*(float scalar) const;
     Tensor matmul(const Tensor& other) const;
-    void inplace_add(const Tensor& other);
+    void inplace_add(const Tensor& other, float self_factor = 1.0f, float other_factor = 1.0f);
 
     void backward();
     // void backward(std::shared_ptr<TensorData> inp_grad);
