@@ -5,7 +5,7 @@ Linear::Linear(int input_dim, int output_dim, bool use_bias, bool requires_grad)
     shape[0] = output_dim;
     shape[1] = input_dim;
 
-    weights = Tensor::uniform(shape, 2, 0, 1);
+    weights = Tensor::uniform(shape, 2, -1, 1);
     weights.requires_grad = requires_grad;
 
     if (use_bias) {
@@ -13,9 +13,16 @@ Linear::Linear(int input_dim, int output_dim, bool use_bias, bool requires_grad)
         shape2[0] = output_dim;
         shape2[1] = 1;
 
-        bias = Tensor::uniform(shape2, 2, 0, 1);
+        bias = Tensor::uniform(shape2, 2, -1, 1);
         bias.requires_grad = requires_grad;
     }
+}
+
+std::vector<Tensor*> Linear::get_params() {
+    if (use_bias) {
+        return {&weights, &bias};
+    }
+    return {&weights};
 }
 
 Tensor Linear::forward(const Tensor& input) {

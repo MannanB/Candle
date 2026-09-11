@@ -12,6 +12,7 @@
 #include "activations.h"
 #include "layers.h"
 #include "losses.h"
+#include "optimizers.h"
 #include "tensor.h"
 #include "utils.h"
 
@@ -382,7 +383,28 @@ PYBIND11_MODULE(_candle, module, py::mod_gil_not_used()) {
             py::arg("target")
         );
 
-    py::class_<Linear>(module, "Linear")
+    py::class_<Layer>(module, "Layer");
+
+    py::class_<SGD>(module, "SGD")
+        .def(py::init<float>(), py::arg("lr"))
+        .def(
+            "add_parameter",
+            &SGD::add_parameter,
+            py::arg("parameter"),
+            py::keep_alive<1, 2>()
+        )
+        .def(
+            "add_layer",
+            &SGD::add_layer,
+            py::arg("layer"),
+            py::keep_alive<1, 2>()
+        )
+        .def("init_grad", &SGD::init_grad)
+        .def("zero_grad", &SGD::zero_grad)
+        .def("step", &SGD::step)
+        .def_readwrite("lr", &SGD::lr);
+
+    py::class_<Linear, Layer>(module, "Linear")
         .def(
             py::init<int, int, bool, bool>(),
             py::arg("input_dim"),

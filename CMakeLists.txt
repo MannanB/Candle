@@ -20,6 +20,7 @@ pybind11_add_module(
     cpp/autograd.cpp
     cpp/layers.cpp
     cpp/losses.cpp
+    cpp/optimizers.cpp
     cpp/tensor.cpp
     cpp/utils.cpp
     cpp/kernels/tensor/add.cu

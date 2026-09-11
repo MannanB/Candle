@@ -24,13 +24,13 @@ TODOs
 - [ ] Python-side type hints / QOL
 - [ ] half precision
 - [ ] Optimizers
-    - [ ] SGD
+    - [x] SGD
     - [ ] Adam
     - [ ] AdamW
 - [x] simple autograd
 - [ ] separate tensors from host mem / device mem
-- [ ] working Mnist w/o pytorch
-    - [ ] binary classifier
+- [x] working Mnist w/o pytorch
+    - [x] binary classifier
     - [ ] multi-class classification model
     - [ ] image processing kernels?
 - [ ] tiny transformer model

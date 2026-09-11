@@ -22,27 +22,24 @@ class MnistDataloader(object):
         self.test_images_filepath = test_images_filepath
         self.test_labels_filepath = test_labels_filepath
     
-    def read_images_labels(self, images_filepath, labels_filepath):        
-        labels = []
-        with open(labels_filepath, 'rb') as file:
-            magic, size = struct.unpack(">II", file.read(8))
+    def read_images_labels(self, images_filepath, labels_filepath):
+        with open(labels_filepath, "rb") as f:
+            magic, size = struct.unpack(">II", f.read(8))
             if magic != 2049:
-                raise ValueError('Magic number mismatch, expected 2049, got {}'.format(magic))
-            labels = array("B", file.read())        
-        
-        with open(images_filepath, 'rb') as file:
-            magic, size, rows, cols = struct.unpack(">IIII", file.read(16))
+                raise ValueError(f"Expected 2049, got {magic}")
+            labels = list(f.read())
+
+        with open(images_filepath, "rb") as f:
+            magic, size, rows, cols = struct.unpack(">IIII", f.read(16))
             if magic != 2051:
-                raise ValueError('Magic number mismatch, expected 2051, got {}'.format(magic))
-            image_data = array("B", file.read())        
-        images = []
-        for i in range(size):
-            images.append([0] * rows * cols)
-        for i in range(size):
-            img = np.array(image_data[i * rows * cols:(i + 1) * rows * cols])
-            img = img.reshape(28, 28)
-            images[i][:] = img            
-        
+                raise ValueError(f"Expected 2051, got {magic}")
+            data = list(f.read())
+
+        images = [
+            [data[i*rows*cols + r*cols : i*rows*cols + (r+1)*cols] for r in range(rows)]
+            for i in range(size)
+        ]
+
         return images, labels
             
     def load_data(self):
