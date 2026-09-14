@@ -4,6 +4,9 @@
 #include <cuda_runtime_api.h>
 
 #include <queue>
+#include <cerrno>
+#include <cstring>
+#include <fstream>
 #include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
@@ -562,6 +565,146 @@ void Tensor::inplace_add(const Tensor& other, float self_factor, float other_fac
         other_factor,
         tensor_data->size
     );
+}
+
+bool Tensor::save(std::string path) {
+    float* host_data = nullptr;
+    CUDA_CHECK(cudaMallocHost(
+        reinterpret_cast<void**>(&host_data),
+        tensor_data->size * sizeof(float)
+    ));
+
+    CUDA_CHECK(cudaMemcpy(
+        host_data,
+        tensor_data->data,
+        tensor_data->size * sizeof(float),
+        cudaMemcpyDeviceToHost
+    ));
+
+    std::ofstream outFile(path, std::ios::out | std::ios::binary);
+    if (!outFile) {
+        CUDA_CHECK(cudaFreeHost(host_data));
+        throw std::runtime_error(std::strerror(errno));
+    }
+
+    int tensor_size = tensor_data->size;
+    outFile.write(reinterpret_cast<const char*>(&tensor_size), sizeof(tensor_size));
+    outFile.write(reinterpret_cast<const char*>(host_data), tensor_size * sizeof(float));
+
+    outFile.write(reinterpret_cast<const char*>(&ndim), sizeof(ndim));
+    outFile.write(reinterpret_cast<const char*>(shape), ndim * sizeof(int));
+
+    outFile.close();
+    CUDA_CHECK(cudaFreeHost(host_data));
+    return true;
+}
+
+Tensor Tensor::load(std::string path) {
+    return load(path, std::make_shared<TensorData>());
+}
+
+namespace {
+Tensor load_into_data(float* host_data, int size, int* shape, int ndim,
+                      std::shared_ptr<TensorData> tensor_data) {
+    if (!tensor_data) tensor_data = std::make_shared<TensorData>();
+    if (!tensor_data->data || tensor_data->size != size) {
+        if (tensor_data->data) CUDA_CHECK(cudaFree(tensor_data->data));
+        tensor_data->data = nullptr;
+        CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&tensor_data->data), size * sizeof(float)));
+    }
+    tensor_data->size = size;
+    CUDA_CHECK(cudaMemcpy(tensor_data->data, host_data, size * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaFreeHost(host_data));
+    return Tensor(std::move(tensor_data), shape, ndim);
+}
+}
+
+Tensor Tensor::load(std::string path, std::shared_ptr<TensorData> tensor_data) {
+
+    std::ifstream inFile(path, std::ios::in | std::ios::binary);
+    if (!inFile) throw std::runtime_error(std::strerror(errno));
+
+
+    int tensor_size = 0;
+    inFile.read(reinterpret_cast<char*>(&tensor_size), sizeof(tensor_size));
+
+    float* host_data = nullptr;
+    CUDA_CHECK(cudaMallocHost(
+        reinterpret_cast<void**>(&host_data),
+        tensor_size * sizeof(float)
+    ));
+
+    inFile.read(reinterpret_cast<char*>(host_data), tensor_size * sizeof(float));
+
+    int ndim = 0;
+    inFile.read(reinterpret_cast<char*>(&ndim), sizeof(ndim));
+    int* shape = new int[ndim];
+    inFile.read(reinterpret_cast<char*>(shape), ndim * sizeof(int));
+
+    inFile.close();
+
+    Tensor out = load_into_data(host_data, tensor_size, shape, ndim, std::move(tensor_data));
+
+    return out;
+}
+
+bool Tensor::save_many(const std::vector<Tensor>& tensors, std::string path) {
+    std::ofstream file(path, std::ios::binary);
+    if (!file) throw std::runtime_error(std::strerror(errno));
+    int count = static_cast<int>(tensors.size());
+    file.write(reinterpret_cast<const char*>(&count), sizeof(count));
+    for (const Tensor& tensor : tensors) {
+        int size = tensor.tensor_data->size;
+        std::vector<float> data(size);
+        CUDA_CHECK(cudaMemcpy(data.data(), tensor.tensor_data->data,
+                              size * sizeof(float), cudaMemcpyDeviceToHost));
+        file.write(reinterpret_cast<const char*>(&size), sizeof(size));
+        file.write(reinterpret_cast<const char*>(data.data()), size * sizeof(float));
+        file.write(reinterpret_cast<const char*>(&tensor.ndim), sizeof(tensor.ndim));
+        file.write(reinterpret_cast<const char*>(tensor.shape), tensor.ndim * sizeof(int));
+        file.write(reinterpret_cast<const char*>(&tensor.requires_grad), sizeof(bool));
+    }
+    return true;
+}
+
+namespace {
+Tensor read_tensor(std::ifstream& file, std::shared_ptr<TensorData> tensor_data) {
+    int size = 0, ndim = 0;
+    file.read(reinterpret_cast<char*>(&size), sizeof(size));
+    float* data = nullptr;
+    CUDA_CHECK(cudaMallocHost(reinterpret_cast<void**>(&data), size * sizeof(float)));
+    file.read(reinterpret_cast<char*>(data), size * sizeof(float));
+    file.read(reinterpret_cast<char*>(&ndim), sizeof(ndim));
+    int* shape = new int[ndim];
+    file.read(reinterpret_cast<char*>(shape), ndim * sizeof(int));
+    Tensor tensor = load_into_data(data, size, shape, ndim, std::move(tensor_data));
+    file.read(reinterpret_cast<char*>(&tensor.requires_grad), sizeof(bool));
+    return tensor;
+}
+}
+
+std::vector<Tensor> Tensor::load_many(std::string path) {
+    std::ifstream file(path, std::ios::binary);
+    if (!file) throw std::runtime_error(std::strerror(errno));
+    int count = 0;
+    file.read(reinterpret_cast<char*>(&count), sizeof(count));
+    std::vector<Tensor> tensors;
+    for (int i = 0; i < count; ++i) {
+        tensors.push_back(read_tensor(file, nullptr));
+    }
+    return tensors;
+}
+
+int Tensor::load_many(std::string path, const std::vector<Tensor*>& tensors) {
+    std::ifstream file(path, std::ios::binary);
+    if (!file) throw std::runtime_error(std::strerror(errno));
+    int count = 0;
+    file.read(reinterpret_cast<char*>(&count), sizeof(count));
+    for (int i = 0; i < count; ++i) {
+        Tensor& tensor = *tensors.at(i);
+        tensor = read_tensor(file, tensor.tensor_data);
+    }
+    return count;
 }
 
 void Tensor::init_grad() const {

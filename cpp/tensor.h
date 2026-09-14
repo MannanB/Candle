@@ -1,5 +1,6 @@
 #pragma once
 #include <memory>
+#include <string>
 #include <vector>
 
 struct GradFn;
@@ -57,6 +58,14 @@ struct Tensor {
     void init_grad() const;
     void zero_grad() const;
     void accumulate_grad(const Tensor& gradient) const;
+
+    // file io
+    bool save(std::string path);
+    static Tensor load(std::string path);
+    static Tensor load(std::string path, std::shared_ptr<TensorData> tensor_data);
+    static bool save_many(const std::vector<Tensor>& tensors, std::string path);
+    static std::vector<Tensor> load_many(std::string path);
+    static int load_many(std::string path, const std::vector<Tensor*>& tensors);
 
     // stuff for autograd
     std::shared_ptr<GradFn> grad_fn;

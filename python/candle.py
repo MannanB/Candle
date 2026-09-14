@@ -10,6 +10,7 @@ from _candle import Linear as Linear  # type: ignore  # noqa: E402
 from _candle import Losses as Losses  # type: ignore  # noqa: E402
 from _candle import SGD as SGD  # type: ignore  # noqa: E402
 from _candle import Tensor as Tensor  # type: ignore  # noqa: E402
+from _candle import TensorData as TensorData  # type: ignore  # noqa: E402
 
 activations = Activations
 losses = Losses

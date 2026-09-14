@@ -12,10 +12,13 @@ class Linear : public Layer {
     Tensor weights;
     Tensor bias;
     bool use_bias;
+    Linear() : use_bias(false) {}
     
 public:
 
     Linear(int input_dim, int output_dim, bool use_bias=true, bool requires_grad=true);
+    bool save(std::string path);
+    static Linear load(std::string path);
 
     std::vector<Tensor*> get_params();
     Tensor forward(const Tensor& input);

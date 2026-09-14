@@ -18,6 +18,17 @@ Linear::Linear(int input_dim, int output_dim, bool use_bias, bool requires_grad)
     }
 }
 
+bool Linear::save(std::string path) {
+    return Tensor::save_many(use_bias ? std::vector<Tensor>{weights, bias}
+                                      : std::vector<Tensor>{weights}, path);
+}
+
+Linear Linear::load(std::string path) {
+    Linear out;
+    out.use_bias = Tensor::load_many(path, {&out.weights, &out.bias}) == 2;
+    return out;
+}
+
 std::vector<Tensor*> Linear::get_params() {
     if (use_bias) {
         return {&weights, &bias};

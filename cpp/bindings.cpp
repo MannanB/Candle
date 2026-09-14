@@ -285,7 +285,11 @@ std::string tensor_repr(const Tensor& tensor) {
 }  // namespace
 
 PYBIND11_MODULE(_candle, module, py::mod_gil_not_used()) {
+    py::class_<TensorData, std::shared_ptr<TensorData>>(module, "TensorData")
+        .def(py::init<>())
+        .def_readonly("size", &TensorData::size);
     py::class_<Tensor, std::shared_ptr<Tensor>>(module, "Tensor")
+        .def(py::init<>())
         .def(
             py::init(&tensor_from_list),
             py::arg("data_list"),
@@ -313,6 +317,15 @@ PYBIND11_MODULE(_candle, module, py::mod_gil_not_used()) {
         )
         .def("numpy", &tensor_to_numpy)
         .def("tolist", &tensor_to_list)
+        .def("save", &Tensor::save, py::arg("path"))
+        .def_static("load", py::overload_cast<std::string>(&Tensor::load), py::arg("path"))
+        .def_static("load", py::overload_cast<std::string, std::shared_ptr<TensorData>>(&Tensor::load),
+                    py::arg("path"), py::arg("tensor_data"))
+        .def_static("save_many", &Tensor::save_many, py::arg("tensors"), py::arg("path"))
+        .def_static("load_many", py::overload_cast<std::string>(&Tensor::load_many), py::arg("path"))
+        .def_static("load_many", py::overload_cast<std::string, const std::vector<Tensor*>&>(&Tensor::load_many),
+                    py::arg("path"), py::arg("tensors"))
+        .def_readonly("tensor_data", &Tensor::tensor_data)
         .def_property_readonly("shape", &tensor_shape)
         .def_readwrite("requires_grad", &Tensor::requires_grad)
         .def_property_readonly("grad", [](const Tensor& tensor) {
@@ -413,6 +426,8 @@ PYBIND11_MODULE(_candle, module, py::mod_gil_not_used()) {
             py::arg("requires_grad") = true
         )
         .def("forward", &Linear::forward, py::arg("input"))
+        .def("save", &Linear::save, py::arg("path"))
+        .def_static("load", &Linear::load, py::arg("path"))
         .def("__call__", &Linear::forward, py::arg("input"))
         .def_property_readonly(
             "weights",

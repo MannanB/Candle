@@ -1,6 +1,7 @@
 from mnist.mnist_data import get_data_loader
 import candle
 import tqdm
+import os
 
 (x_train, y_train), (x_test, y_test) = get_data_loader().load_data()
 
@@ -11,19 +12,29 @@ import tqdm
 BATCH_SIZE = 100
 INP_SIZE = 28 * 28
 TARGET_NUM = 2
-EPOCHS = 5
-LR = 0.001
+EPOCHS = 2
+LR = 0.01
 
 class BinaryClassifier:
-    def __init__(self):
-        self.l1 = candle.Linear(INP_SIZE, 64)
-        self.l2 = candle.Linear(64, 1)
+    def __init__(self, load_path=None):
+        if load_path:
+            self.l1 = candle.Linear.load(load_path+"/l1.bin")
+            self.l2 = candle.Linear.load(load_path+"/l1.bin")
+        else:
+            self.l1 = candle.Linear(INP_SIZE, 32)
+            self.l2 = candle.Linear(32, 1)
 
     def forward(self, x):
         x = self.l1.forward(x)
         x = candle.activations.relu(x)
         x = self.l2.forward(x)
         return x
+
+    def save(self, path):
+        os.makedirs(path, exist_ok=True)
+        self.l1.save(path+"/l1.bin")
+        self.l2.save(path+"/l2.bin")
+
 
 classifier = BinaryClassifier()
 optimizer = candle.SGD(lr=LR)
@@ -87,10 +98,12 @@ for epoch in range(EPOCHS):
         preds = out.tolist()
         # print(preds)
         for batch in range(BATCH_SIZE):
-            if preds[batch][0][0] > 0.5 and test_batch_label[batch] == 1:
+            if preds[batch][0][0] > 0.3 and test_batch_label[batch] == 1:
                 total_correct += 1
-            if preds[batch][0][0] <= 0.5 and test_batch_label[batch] == 0:
+            if preds[batch][0][0] <= 0.3 and test_batch_label[batch] == 0:
                 total_correct += 1
             total+=1
 
     print("Accuracy: " + str(round(total_correct / total * 100)) + "%")
+
+classifier.save(f"./mnist/mnist_classifier_{TARGET_NUM}")

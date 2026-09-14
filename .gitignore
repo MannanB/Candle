@@ -3,3 +3,5 @@ build/
 python/mnist/data
 __pycache__
 .vscode/
+*.bin
+*.pyc
