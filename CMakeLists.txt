@@ -26,6 +26,8 @@ pybind11_add_module(
     cpp/kernels/tensor/add.cu
     cpp/kernels/activation/relu.cu
     cpp/kernels/activation/relu_bwd.cu
+    cpp/kernels/activation/sigmoid.cu
+    cpp/kernels/activation/sigmoid_bwd.cu
     cpp/kernels/loss/mse.cu
     cpp/kernels/loss/mse_bwd.cu
     cpp/kernels/tensor/scalar_multiply.cu

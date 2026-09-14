@@ -381,6 +381,7 @@ PYBIND11_MODULE(_candle, module, py::mod_gil_not_used()) {
 
     py::class_<Activations>(module, "Activations")
         .def_static("relu", &Activations::relu, py::arg("input"))
+        .def_static("sigmoid", &Activations::sigmoid, py::arg("input"))
         .def_static(
             "softmax",
             &Activations::softmax,

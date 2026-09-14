@@ -3,6 +3,7 @@
 #include <stdexcept>
 
 #include "kernels/activation/relu.h"
+#include "kernels/activation/sigmoid.h"
 #include "kernels/activation/softmax.h"
 #include "autograd.h"
 
@@ -28,6 +29,20 @@ Tensor Activations::relu(const Tensor& input) {
         out.grad_fn = std::make_shared<ReluGradFn>(input);
     }
 
+    return out;
+}
+
+Tensor Activations::sigmoid(const Tensor& input) {
+    int* shape = new int[input.ndim];
+    for (int d = 0; d < input.ndim; ++d) shape[d] = input.shape[d];
+    Tensor out(input.tensor_data->size, shape, input.ndim);
+    launch_sigmoid_kernel(input.tensor_data->data, out.tensor_data->data, out.tensor_data->size);
+    if (input.requires_grad) {
+        input.init_grad();
+        out.requires_grad = true;
+        out.init_grad();
+        out.grad_fn = std::make_shared<SigmoidGradFn>(input);
+    }
     return out;
 }
 

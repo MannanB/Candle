@@ -1,4 +1,5 @@
 #include "autograd.h"
+#include "kernels/activation/sigmoid_bwd.h"
 
 MatMulGradFn::MatMulGradFn(Tensor left, Tensor right) {
     parents = {left, right};
@@ -41,6 +42,19 @@ std::vector<Tensor> ReluGradFn::backward(const Tensor& output_gradient) {
 
     Tensor out(output_gradient.tensor_data->size, out_shape, output_gradient.ndim);
     launch_relu_bwd_kernel(parents[0].tensor_data->data, output_gradient.tensor_data->data, out.tensor_data->data, out.tensor_data->size);
+    return {out};
+}
+
+SigmoidGradFn::SigmoidGradFn(Tensor input) {
+    parents = {input};
+}
+
+std::vector<Tensor> SigmoidGradFn::backward(const Tensor& output_gradient) {
+    int* shape = new int[output_gradient.ndim];
+    for (int d = 0; d < output_gradient.ndim; ++d) shape[d] = output_gradient.shape[d];
+    Tensor out(output_gradient.tensor_data->size, shape, output_gradient.ndim);
+    launch_sigmoid_bwd_kernel(parents[0].tensor_data->data, output_gradient.tensor_data->data,
+                             out.tensor_data->data, out.tensor_data->size);
     return {out};
 }
 

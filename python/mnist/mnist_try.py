@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import candle
 
 TARGET_NUM = 2
-THRESHOLD = 0.3
+THRESHOLD = 0.6
 MODEL_PATH = Path(__file__).resolve().parent / f"mnist_classifier_{TARGET_NUM}"
 CANVAS_SIZE = 280
 BRUSH_SIZE = 20
@@ -20,14 +20,20 @@ class BinaryClassifier:
     def __init__(self, path):
         self.l1 = candle.Linear.load(str(path / "l1.bin"))
         self.l2 = candle.Linear.load(str(path / "l2.bin"))
-        for layer in (self.l1, self.l2):
+        self.l3 = candle.Linear.load(str(path / "l3.bin"))
+        for layer in (self.l1, self.l2, self.l3):
             layer.weights.requires_grad = False
             if layer.bias is not None:
                 layer.bias.requires_grad = False
 
     def forward(self, x):
-        return self.l2.forward(candle.activations.relu(self.l1.forward(x)))
-
+        x = self.l1.forward(x)
+        x = candle.activations.sigmoid(x)
+        x = self.l2.forward(x)
+        x = candle.activations.sigmoid(x)
+        x = self.l3.forward(x)
+        x = candle.activations.sigmoid(x)
+        return x
 
 def prepare_input(image):
     """Fit the digit into a centered 20x20 box on MNIST's 28x28 canvas."""
@@ -37,7 +43,7 @@ def prepare_input(image):
     centered.paste(digit, ((28 - digit.width) // 2, (28 - digit.height) // 2))
     pixels = list(centered.getdata())
     rows = [pixels[i:i + 28] for i in range(0, 784, 28)]
-    return candle.Tensor([rows]).flatten(1, 2).unsqueeze() * (1 / 255.0)
+    return candle.Tensor(rows).flatten().unsqueeze() * (1 / 255.0)
 
 
 class DrawingWindow:
@@ -90,7 +96,7 @@ class DrawingWindow:
         if self.image.getbbox() is None:
             self.result.set("Draw a digit first")
             return
-        score = self.classifier.forward(prepare_input(self.image)).tolist()[0][0][0]
+        score = self.classifier.forward(prepare_input(self.image)).tolist()[0][0]
         verdict = f"IS {TARGET_NUM}" if score > THRESHOLD else f"NOT {TARGET_NUM}"
         message = f"{verdict} (score: {score:.3f})"
         self.result.set(message)

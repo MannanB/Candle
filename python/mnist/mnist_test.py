@@ -2,6 +2,20 @@ from mnist.mnist_data import get_data_loader
 import candle
 import tqdm
 import os
+import random
+
+def balance(x, y, num, pct):
+    target = [i for i, v in enumerate(y) if v == num]
+    other  = [i for i, v in enumerate(y) if v != num]
+
+    n_other = int(len(target) * (1 - pct) / pct)
+    other = random.sample(other, min(n_other, len(other)))
+
+    idx = target + other
+    random.shuffle(idx)
+
+    return [x[i] for i in idx], [y[i] for i in idx]
+
 
 (x_train, y_train), (x_test, y_test) = get_data_loader().load_data()
 
@@ -9,31 +23,39 @@ import os
 
 # print(len(x_train[0]))
 
-BATCH_SIZE = 100
+BATCH_SIZE = 128
 INP_SIZE = 28 * 28
 TARGET_NUM = 2
-EPOCHS = 2
-LR = 0.01
+EPOCHS = 20
+LR = 0.05
+
+x_train, y_train = balance(x_train, y_train, TARGET_NUM, .6)
+x_test, y_test = balance(x_test, y_test, TARGET_NUM, .6)
 
 class BinaryClassifier:
     def __init__(self, load_path=None):
         if load_path:
             self.l1 = candle.Linear.load(load_path+"/l1.bin")
-            self.l2 = candle.Linear.load(load_path+"/l1.bin")
+            self.l2 = candle.Linear.load(load_path+"/l2.bin")
         else:
-            self.l1 = candle.Linear(INP_SIZE, 32)
-            self.l2 = candle.Linear(32, 1)
+            self.l1 = candle.Linear(INP_SIZE, 64)
+            self.l2 = candle.Linear(64, 16)
+            self.l3 = candle.Linear(16, 1)
 
     def forward(self, x):
         x = self.l1.forward(x)
-        x = candle.activations.relu(x)
+        x = candle.activations.sigmoid(x)
         x = self.l2.forward(x)
+        x = candle.activations.sigmoid(x)
+        x = self.l3.forward(x)
+        x = candle.activations.sigmoid(x)
         return x
 
     def save(self, path):
         os.makedirs(path, exist_ok=True)
         self.l1.save(path+"/l1.bin")
         self.l2.save(path+"/l2.bin")
+        self.l3.save(path+"/l3.bin")
 
 
 classifier = BinaryClassifier()
@@ -74,11 +96,12 @@ for epoch in range(EPOCHS):
         # input()
         loss = candle.losses.mse(out, train_tensor_label)
 
-        pbar.set_description("Loss: " + str(loss.tolist()))
+        pbar.set_description("Loss: " + str(loss.tolist())[:4] + " LR: " + str(round(optimizer.lr, 4)))
 
         optimizer.zero_grad()
         loss.backward() # yay
         optimizer.step()
+    optimizer.lr *= .99
 
     pbar = tqdm.tqdm(range(len(x_test) // BATCH_SIZE - 1), desc="testing")
     total_correct = 0
@@ -98,9 +121,9 @@ for epoch in range(EPOCHS):
         preds = out.tolist()
         # print(preds)
         for batch in range(BATCH_SIZE):
-            if preds[batch][0][0] > 0.3 and test_batch_label[batch] == 1:
+            if preds[batch][0][0] > 0.5 and test_batch_label[batch] == 1:
                 total_correct += 1
-            if preds[batch][0][0] <= 0.3 and test_batch_label[batch] == 0:
+            if preds[batch][0][0] <= 0.5 and test_batch_label[batch] == 0:
                 total_correct += 1
             total+=1
 
