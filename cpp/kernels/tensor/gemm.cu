@@ -1,58 +1,96 @@
 #include "gemm.h"
 
-#define THREADS_PER_BLOCK_MM 16
-#define TILE_WIDTH 16
+#define BM 64 // rows of C computed by a block
+#define BN 64 // cols of C computed by a block
+#define BK 8  // # of K elements loaded per iteration
+#define TM 4  // rows of C computed by a thread
+#define TN 4  // cols of C computed by a thread
 
-// TODO: try coarse matmul + vectorization
-// TODO: use tmem / modern cuda mma (does my gpu even support that)
-__global__ void mat_mul_kernel(float* A, float* B, float* C, int A_rows, int shared_dim, int B_cols) {
-    // C -> A_rows x B_cols
+// A -> M x K, B -> K x N, C -> M x N
 
-    const int row = blockIdx.y * TILE_WIDTH + threadIdx.y;
-    const int col = blockIdx.x * TILE_WIDTH + threadIdx.x;
-    const int num_tiles = ceil((float)shared_dim / TILE_WIDTH);
+__global__ void mat_mul_kernel(float alpha, float* A, float* B, float beta, float* C, int A_rows, int shared_dim, int B_cols) {
+    const int thread_row = threadIdx.y;
+    const int thread_col = threadIdx.x;
+    const int num_tiles = ceil((float)shared_dim / BK);
 
-    __shared__ float tile_shared_mem_A[TILE_WIDTH][TILE_WIDTH];
-    __shared__ float tile_shared_mem_B[TILE_WIDTH][TILE_WIDTH];
+    __shared__ float tile_shared_mem_A[BM][BK];
+    __shared__ float tile_shared_mem_B[BK][BN];
 
-    float value = 0;
+    float values[TM][TN] = {0.0};
+    float reg_A[TM];
+    float reg_B[TN];
+
+    const int tid = threadIdx.y * blockDim.x + threadIdx.x;
+    const int num_threads = blockDim.x * blockDim.y;
 
     for (int tile = 0; tile < num_tiles; tile++) {
-        // load tiles to shared mem
-        if (row < A_rows && (tile * blockDim.x + threadIdx.x) < shared_dim) {
-            tile_shared_mem_A[threadIdx.y][threadIdx.x] = A[row * shared_dim + (tile * blockDim.x + threadIdx.x)];
-        } else {
-            tile_shared_mem_A[threadIdx.y][threadIdx.x] = 0;
+        for (int idx = tid; idx < BM * BK; idx += num_threads) {
+            const int local_row = idx / BK;
+            const int local_col = idx % BK;
+
+            const int inner_row_A = blockIdx.y * BM + local_row;
+            const int inner_col_A = tile * BK + local_col;
+
+            if (inner_row_A < A_rows && inner_col_A < shared_dim) {
+                tile_shared_mem_A[local_row][local_col] = A[inner_row_A * shared_dim + inner_col_A];
+            } else {
+                tile_shared_mem_A[local_row][local_col] = 0;
+            }
         }
-        
-        if ((tile * blockDim.y + threadIdx.y) < shared_dim && col < B_cols) {
-            tile_shared_mem_B[threadIdx.y][threadIdx.x] = B[(tile * blockDim.y + threadIdx.y) * B_cols + col];
-        } else {
-            tile_shared_mem_B[threadIdx.y][threadIdx.x] = 0;
+
+        for (int idx = tid; idx < BK * BN; idx += num_threads) {
+            const int local_row = idx / BN;
+            const int local_col = idx % BN;
+
+            const int inner_row_B = tile * BK + local_row;
+            const int inner_col_B = blockIdx.x * BN + local_col;
+
+            if (inner_row_B < shared_dim && inner_col_B < B_cols) {
+                tile_shared_mem_B[local_row][local_col] = B[inner_row_B * B_cols + inner_col_B];
+            } else {
+                tile_shared_mem_B[local_row][local_col] = 0;
+            }
         }
 
         __syncthreads();
 
-        for (int k_tile = 0; k_tile < blockDim.x; k_tile++) {
-            value += tile_shared_mem_A[threadIdx.y][k_tile] * tile_shared_mem_B[k_tile][threadIdx.x];
+        for (int dotIdx = 0; dotIdx < BK; dotIdx++) {
+            for (int resIdx = 0; resIdx < TM; resIdx++) {
+                reg_A[resIdx] = tile_shared_mem_A[thread_row * TM + resIdx][dotIdx];
+            }
+
+            for (int resIdx = 0; resIdx < TN; resIdx++) {
+                reg_B[resIdx] = tile_shared_mem_B[dotIdx][thread_col * TN + resIdx];
+            }
+
+            for (int rowIdx = 0; rowIdx < TM; rowIdx++) {
+                for (int colIdx = 0; colIdx < TN; colIdx++) {
+                    values[rowIdx][colIdx] += reg_A[rowIdx] * reg_B[colIdx];
+                }
+            }
         }
+
         __syncthreads();
     }
 
-    if (row < A_rows && col < B_cols) {
-        C[row*B_cols + col] = value;
+    for (int rowIdx = 0; rowIdx < TM; rowIdx++) {
+        for (int colIdx = 0; colIdx < TN; colIdx++) {
+            const int row = blockIdx.y * BM + thread_row * TM + rowIdx;
+            const int col = blockIdx.x * BN + thread_col * TN + colIdx;
+
+            if (row < A_rows && col < B_cols) {
+                C[row * B_cols + col] = alpha * values[rowIdx][colIdx] + beta * C[row * B_cols + col];
+            }
+        }
     }
 }
 
-void launch_mat_mul_kernel(float* A, float* B, float* C, int A_rows, int shared_dim, int B_cols) {
+void launch_mat_mul_kernel(float alpha, float* A, float* B, float beta, float* C, int A_rows, int shared_dim, int B_cols) {
+    dim3 threadsPerBlock(BN / TN, BM / TM);
+    dim3 numBlocks(cuda::ceil_div(B_cols, BN), cuda::ceil_div(A_rows, BM));
 
-    dim3 threadsPerBlock(THREADS_PER_BLOCK_MM, THREADS_PER_BLOCK_MM);
-    dim3 numBlocks(cuda::ceil_div(B_cols, TILE_WIDTH), cuda::ceil_div(A_rows, TILE_WIDTH));
-
-
-    mat_mul_kernel<<<numBlocks, threadsPerBlock>>>(A, B, C, A_rows, shared_dim, B_cols);
+    mat_mul_kernel<<<numBlocks, threadsPerBlock>>>(alpha, A, B, beta, C, A_rows, shared_dim, B_cols);
 
     CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
-
 }

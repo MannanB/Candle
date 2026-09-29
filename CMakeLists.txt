@@ -13,16 +13,8 @@ find_package(
 find_package(pybind11 CONFIG REQUIRED)
 find_package(CUDAToolkit REQUIRED)
 
-pybind11_add_module(
-    _candle
-    cpp/bindings.cpp
-    cpp/activations.cpp
-    cpp/autograd.cpp
-    cpp/layers.cpp
-    cpp/losses.cpp
-    cpp/optimizers.cpp
-    cpp/tensor.cpp
-    cpp/utils.cpp
+set(
+    CANDLE_KERNEL_SOURCES
     cpp/kernels/tensor/add.cu
     cpp/kernels/activation/relu.cu
     cpp/kernels/activation/relu_bwd.cu
@@ -40,6 +32,19 @@ pybind11_add_module(
     cpp/kernels/tensor/broadcast_gemm.cu
 )
 
+pybind11_add_module(
+    _candle
+    cpp/bindings.cpp
+    cpp/activations.cpp
+    cpp/autograd.cpp
+    cpp/layers.cpp
+    cpp/losses.cpp
+    cpp/optimizers.cpp
+    cpp/tensor.cpp
+    cpp/utils.cpp
+    ${CANDLE_KERNEL_SOURCES}
+)
+
 target_include_directories(
     _candle PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/cpp
@@ -54,4 +59,27 @@ target_link_libraries(
 set_target_properties(
     _candle PROPERTIES
     CUDA_SEPARABLE_COMPILATION ON
+)
+
+add_executable(
+    candle_profiler
+    cpp/profiler.cpp
+    ${CANDLE_KERNEL_SOURCES}
+)
+
+target_include_directories(
+    candle_profiler PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/kernels
+)
+
+target_link_libraries(
+    candle_profiler PRIVATE
+    CUDA::cudart
+)
+
+set_target_properties(
+    candle_profiler PROPERTIES
+    CUDA_SEPARABLE_COMPILATION ON
+    OUTPUT_NAME CandleProfiler
 )

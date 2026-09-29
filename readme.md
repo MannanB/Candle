@@ -33,7 +33,13 @@ TODOs
 - [ ] separate tensors from host mem / device mem
 - [x] working Mnist w/o pytorch
     - [x] binary classifier
+    - [ ] normalization / weight initialization
     - [ ] multi-class classification model
     - [ ] image processing kernels?
 - [ ] tiny transformer model
 - [ ] Flash attention
+
+
+# matmul benches
+
+1. 371.94 GFLOP/s
