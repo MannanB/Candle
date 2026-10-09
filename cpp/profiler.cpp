@@ -25,6 +25,10 @@
 #include "kernels/tensor/broadcast_add.h"
 #include "kernels/tensor/broadcast_gemm.h"
 #include "kernels/tensor/gemm.h"
+#include "kernels/tensor/gemm_2d_tile.h"
+#include "kernels/tensor/gemm_naive.h"
+#include "kernels/tensor/gemm_smem.h"
+#include "kernels/tensor/gemm_vectorized.h"
 #include "kernels/tensor/scalar_multiply.h"
 #include "kernels/tensor/sum_reduce.h"
 #include "kernels/tensor/transpose.h"
@@ -45,6 +49,10 @@ constexpr const char* kKernelNames[] = {
     "transpose",
     "sum-reduce",
     "gemm",
+    "gemm_vectorized",
+    "gemm_2d_tile",
+    "gemm_smem",
+    "gemm_naive",
     "batched-gemm",
     "broadcast-gemm",
 };
@@ -345,7 +353,8 @@ PreparedKernel prepare_kernel(const Options& options) {
                          std::to_string(options.rows) + ", cols=" +
                          std::to_string(options.cols) + ", suffix=" +
                          std::to_string(options.suffix);
-    } else if (name == "gemm") {
+    } else if (name == "gemm" || name == "gemm_vectorized" || name == "gemm_2d_tile" || name == "gemm_smem" || name == "gemm_naive" ||
+               name == "gemm-smem" || name == "gemm-naive") {
         const std::size_t a_count = checked_product(
             {static_cast<std::size_t>(options.rows), static_cast<std::size_t>(options.inner)});
         const std::size_t b_count = checked_product(
@@ -355,9 +364,27 @@ PreparedKernel prepare_kernel(const Options& options) {
         float* a = prepared.allocations.allocate(a_count);
         float* b = prepared.allocations.allocate(b_count);
         float* output = prepared.allocations.allocate(output_count, false);
-        prepared.launch = [=] {
-            launch_mat_mul_kernel(a, b, output, options.rows, options.inner, options.cols);
-        };
+        if (name == "gemm_vectorized") {
+            prepared.launch = [=] {
+                launch_mat_mul_vectorized_kernel(a, b, output, options.rows, options.inner, options.cols);
+            };
+        } else if (name == "gemm_2d_tile") {
+            prepared.launch = [=] {
+                launch_mat_mul_2d_tile_kernel(a, b, output, options.rows, options.inner, options.cols);
+            };
+        } else if (name == "gemm_smem" || name == "gemm-smem") {
+            prepared.launch = [=] {
+                launch_mat_mul_smem_kernel(a, b, output, options.rows, options.inner, options.cols);
+            };
+        } else if (name == "gemm_naive" || name == "gemm-naive") {
+            prepared.launch = [=] {
+                launch_mat_mul_naive_kernel(a, b, output, options.rows, options.inner, options.cols);
+            };
+        } else {
+            prepared.launch = [=] {
+                launch_mat_mul_kernel(a, b, output, options.rows, options.inner, options.cols);
+            };
+        }
         prepared.shape = "m=" + std::to_string(options.rows) + ", k=" +
                          std::to_string(options.inner) + ", n=" + std::to_string(options.cols);
     } else if (name == "batched-gemm" || name == "broadcast-gemm") {

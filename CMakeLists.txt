@@ -27,6 +27,10 @@ set(
     cpp/kernels/tensor/broadcast_add.cu
     cpp/kernels/tensor/transpose.cu
     cpp/kernels/tensor/gemm.cu
+    cpp/kernels/tensor/gemm_vectorized.cu
+    cpp/kernels/tensor/gemm_2d_tile.cu
+    cpp/kernels/tensor/gemm_smem.cu
+    cpp/kernels/tensor/gemm_naive.cu
     cpp/kernels/tensor/sum_reduce.cu
     cpp/kernels/tensor/batched_gemm.cu
     cpp/kernels/tensor/broadcast_gemm.cu
