@@ -511,7 +511,7 @@ Tensor Tensor::matmul(const Tensor& a, const Tensor& b) {
     } else {
         launch_mat_mul_kernel(
             a.tensor_data->data, b.tensor_data->data, out.tensor_data->data,
-            a_rows, a_cols, b_cols
+            a_rows, a_cols, b_cols, 1.0f, 0.0f
         );
     }
 

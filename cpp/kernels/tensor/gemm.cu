@@ -44,7 +44,16 @@ __global__ void mat_mul_kernel(float alpha, float* A, float* B, float beta, floa
         const int A_start_idx_four = inner_row_A * shared_dim + inner_col_A; // for vec 4
         // max = 255 * 4 = 1020 (1021,1022,1023) -> which make sense cuz 128 * 8 = 1024
 
-        float4 tmp = reinterpret_cast<float4 *>(&A[A_start_idx_four])[0];
+        float4 tmp = {0.0f, 0.0f, 0.0f, 0.0f};
+        if (inner_row_A < A_rows && inner_col_A + 3 < shared_dim &&
+            A_start_idx_four % 4 == 0) {
+            tmp = reinterpret_cast<float4 *>(&A[A_start_idx_four])[0];
+        } else if (inner_row_A < A_rows) {
+            float* tmp_values = reinterpret_cast<float*>(&tmp);
+            for (int offset = 0; offset < 4 && inner_col_A + offset < shared_dim; ++offset) {
+                tmp_values[offset] = A[A_start_idx_four + offset];
+            }
+        }
 
         tile_shared_mem_A[local_col_A + 0][local_row_A] = tmp.x;
         tile_shared_mem_A[local_col_A + 1][local_row_A] = tmp.y;
@@ -60,8 +69,20 @@ __global__ void mat_mul_kernel(float alpha, float* A, float* B, float beta, floa
         
         const int B_start_idx_four = inner_row_B * B_cols + inner_col_B; // for vec 4
 
-        reinterpret_cast<float4 *>(&tile_shared_mem_B[local_row_B][local_col_B])[0] =
-            reinterpret_cast<float4 *>(&B[B_start_idx_four])[0];
+        if (inner_row_B < shared_dim && inner_col_B + 3 < B_cols &&
+            B_start_idx_four % 4 == 0) {
+            reinterpret_cast<float4 *>(&tile_shared_mem_B[local_row_B][local_col_B])[0] =
+                reinterpret_cast<float4 *>(&B[B_start_idx_four])[0];
+        } else {
+            for (int offset = 0; offset < 4; ++offset) {
+                if (inner_row_B < shared_dim && inner_col_B + offset < B_cols) {
+                    tile_shared_mem_B[local_row_B][local_col_B + offset] =
+                        B[B_start_idx_four + offset];
+                } else {
+                    tile_shared_mem_B[local_row_B][local_col_B + offset] = 0.0f;
+                }
+            }
+        }
 
 
         __syncthreads();
@@ -90,51 +111,65 @@ __global__ void mat_mul_kernel(float alpha, float* A, float* B, float beta, floa
             const int row = blockIdx.y * BM + thread_row * TM + rowIdx;
             const int col = blockIdx.x * BN + thread_col * TN + colIdx;
 
-            float4 result = {
-                alpha * values[rowIdx][colIdx + 0],
-                alpha * values[rowIdx][colIdx + 1],
-                alpha * values[rowIdx][colIdx + 2],
-                alpha * values[rowIdx][colIdx + 3]
-            };
+            if (row < A_rows && col + 3 < B_cols && (row * B_cols + col) % 4 == 0) {
+                float4 result = {
+                    alpha * values[rowIdx][colIdx + 0],
+                    alpha * values[rowIdx][colIdx + 1],
+                    alpha * values[rowIdx][colIdx + 2],
+                    alpha * values[rowIdx][colIdx + 3]
+                };
 
-            if (beta != 0.0f) {
-                const float4 old = reinterpret_cast<float4 *>(&C[row * B_cols + col])[0];
-                result.x += beta * old.x;
-                result.y += beta * old.y;
-                result.z += beta * old.z;
-                result.w += beta * old.w;
+                if (beta != 0.0f) {
+                    const float4 old = reinterpret_cast<float4 *>(&C[row * B_cols + col])[0];
+                    result.x += beta * old.x;
+                    result.y += beta * old.y;
+                    result.z += beta * old.z;
+                    result.w += beta * old.w;
+                }
+
+                reinterpret_cast<float4 *>(&C[row * B_cols + col])[0] = result;
+            } else if (row < A_rows) {
+                for (int offset = 0; offset < 4 && col + offset < B_cols; ++offset) {
+                    float result = alpha * values[rowIdx][colIdx + offset];
+                    if (beta != 0.0f) {
+                        result += beta * C[row * B_cols + col + offset];
+                    }
+                    C[row * B_cols + col + offset] = result;
+                }
             }
-
-            reinterpret_cast<float4 *>(&C[row * B_cols + col])[0] = result;
         }
     }
 }
 
 template<int BM, int BN, int BK, int TM, int TN>
-void launch_mat_mul_config(float* A, float* B, float* C, int A_rows, int shared_dim, int B_cols) {
+void launch_mat_mul_config(float* A, float* B, float* C, int A_rows, int shared_dim, int B_cols, float alpha, float beta) {
 
     dim3 threadsPerBlock(BN / TN, BM / TM);
     dim3 numBlocks(cuda::ceil_div(B_cols, BN), cuda::ceil_div(A_rows, BM));
 
     mat_mul_kernel<BM, BN, BK, TM, TN><<<numBlocks, threadsPerBlock>>>(
-        1.0f, A, B, 0.0f, C, A_rows, shared_dim, B_cols);
+        alpha, A, B, beta, C, A_rows, shared_dim, B_cols);
 }
 
-void launch_mat_mul_kernel(float* A, float* B, float* C, int A_rows, int shared_dim, int B_cols) {
+void launch_mat_mul_kernel(float* A, float* B, float* C, int A_rows, int shared_dim, int B_cols, float alpha, float beta) {
 
     // values from scripts/autotune_gemm.py
     if (A_rows <= 64 && B_cols <= 64 && shared_dim <= 64) {
-        launch_mat_mul_config<64, 64, 8, 8, 4>(A, B, C, A_rows, shared_dim, B_cols);
+        launch_mat_mul_config<64, 64, 8, 8, 4>(A, B, C, A_rows, shared_dim, B_cols, alpha, beta);
     } else if (A_rows <= 128 && B_cols <= 128 && shared_dim <= 128) {
-        launch_mat_mul_config<32, 32, 16, 2, 4>(A, B, C, A_rows, shared_dim, B_cols);
+        launch_mat_mul_config<32, 32, 16, 2, 4>(A, B, C, A_rows, shared_dim, B_cols, alpha, beta);
     } else if (A_rows <= 512 && B_cols <= 512 && shared_dim <= 512) {
-        launch_mat_mul_config<64, 64, 8, 8, 4>(A, B, C, A_rows, shared_dim, B_cols);
+        launch_mat_mul_config<64, 64, 8, 8, 4>(A, B, C, A_rows, shared_dim, B_cols, alpha, beta);
     } else if (A_rows <= 1024 && B_cols <= 1024 && shared_dim <= 1024) {
-        launch_mat_mul_config<128, 128, 4, 16, 8>(A, B, C, A_rows, shared_dim, B_cols);
+        launch_mat_mul_config<128, 128, 4, 16, 8>(A, B, C, A_rows, shared_dim, B_cols, alpha, beta);
     } else {
-        launch_mat_mul_config<128, 128, 4, 16, 8>(A, B, C, A_rows, shared_dim, B_cols);
+        launch_mat_mul_config<128, 128, 4, 16, 8>(A, B, C, A_rows, shared_dim, B_cols, alpha, beta);
     }
 
     CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
+}
+
+void launch_mat_mul_kernel(float* A, float* B, float* C, int A_rows, int shared_dim, int B_cols) {
+    launch_mat_mul_kernel(A, B, C, A_rows, shared_dim, B_cols, 1.0f, 0.0f);
 }

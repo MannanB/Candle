@@ -1,60 +1,177 @@
 #include "batched_gemm.h"
 
-#define THREADS_PER_BLOCK_MM 16
-#define TILE_WIDTH 16
+// #define BM 128 // rows of C computed by a block
+// #define BN 128 // cols of C computed by a block
+// #define BK 8  // # of K elements loaded per iteration
+// #define TM 8  // rows of C computed by a thread
+// #define TN 8  // cols of C computed by a thread
 
+// A -> batch x M x K, B -> batch x K x N, C -> batch x M x N
 
-__global__ void batched_mat_mul_kernel(float* A, float* B, float* C, int batched_dim, int A_rows, int shared_dim, int B_cols) {
-    // C -> A_rows x B_cols
-
+template<int BM, int BN, int BK, int TM, int TN>
+__global__ void batched_mat_mul_kernel(float alpha, float* A, float* B, float beta, float* C, int A_rows, int shared_dim, int B_cols) {
     const int batch = blockIdx.z;
-    const int row = blockIdx.y * TILE_WIDTH + threadIdx.y;
-    const int col = blockIdx.x * TILE_WIDTH + threadIdx.x;
-    const int num_tiles = ceil((float)shared_dim / TILE_WIDTH);
+    const int thread_row = threadIdx.y;
+    const int thread_col = threadIdx.x;
+    const int num_tiles = ceil((float)shared_dim / BK);
 
-    __shared__ float tile_shared_mem_A[TILE_WIDTH][TILE_WIDTH];
-    __shared__ float tile_shared_mem_B[TILE_WIDTH][TILE_WIDTH];
+    __shared__ float tile_shared_mem_A[BK][BM];
+    __shared__ float tile_shared_mem_B[BK][BN];
 
-    float value = 0;
+    float values[TM][TN] = {0.0};
+    float reg_A[TM];
+    float reg_B[TN];
+
+    const int tid = threadIdx.y * blockDim.x + threadIdx.x; // y*16+x
+    const int num_threads = blockDim.x * blockDim.y; // 16 * 16 = 256
 
     for (int tile = 0; tile < num_tiles; tile++) {
-        // load tiles to shared mem
-        if (batch < batched_dim && row < A_rows && (tile * blockDim.x + threadIdx.x) < shared_dim) {
-            tile_shared_mem_A[threadIdx.y][threadIdx.x] = A[batch * shared_dim * A_rows + row * shared_dim + (tile * blockDim.x + threadIdx.x)];
-        } else {
-            tile_shared_mem_A[threadIdx.y][threadIdx.x] = 0;
-        }
+        // we are trying to make a 128x128 block
+        // we need to load 128 x 8 from A and 8 x 128 from B
+        // There are (128 / 8)^2 = 256 threads
+        // 128 * 8 / 256 = 4. each thread does a perfect 4 number vectorized load
+        // each tid does next 4. better to imagine tile shared and A as flattened
         
-        if (batch < batched_dim && (tile * blockDim.y + threadIdx.y) < shared_dim && col < B_cols) {
-            tile_shared_mem_B[threadIdx.y][threadIdx.x] = B[batch * shared_dim * B_cols + (tile * blockDim.y + threadIdx.y) * B_cols + col];
+        // general limitation: (BM / TM * BN / TN == total_threads), BM * BK / total_threads == 4, BN * BK / total_threads == 4 
+
+
+        // basically, a single thread loads the row of A_tile, but not necessarily uses those for its calcuation
+        const int local_row_A = tid / (BK / 4);
+        const int local_col_A = (tid % (BK / 4)) * 4;
+        
+        const int inner_row_A = blockIdx.y * BM + local_row_A;
+        const int inner_col_A = tile * BK + local_col_A;
+
+        const int A_start_idx_four = batch * A_rows * shared_dim + inner_row_A * shared_dim + inner_col_A; // for vec 4
+        // max = 255 * 4 = 1020 (1021,1022,1023) -> which make sense cuz 128 * 8 = 1024
+
+        float4 tmp = {0.0f, 0.0f, 0.0f, 0.0f};
+        if (inner_row_A < A_rows && inner_col_A + 3 < shared_dim &&
+            A_start_idx_four % 4 == 0) {
+            tmp = reinterpret_cast<float4 *>(&A[A_start_idx_four])[0];
+        } else if (inner_row_A < A_rows) {
+            float* tmp_values = reinterpret_cast<float*>(&tmp);
+            for (int offset = 0; offset < 4 && inner_col_A + offset < shared_dim; ++offset) {
+                tmp_values[offset] = A[A_start_idx_four + offset];
+            }
+        }
+
+        tile_shared_mem_A[local_col_A + 0][local_row_A] = tmp.x;
+        tile_shared_mem_A[local_col_A + 1][local_row_A] = tmp.y;
+        tile_shared_mem_A[local_col_A + 2][local_row_A] = tmp.z;
+        tile_shared_mem_A[local_col_A + 3][local_row_A] = tmp.w;
+
+
+        const int local_row_B = tid / (BN / 4);
+        const int local_col_B = (tid % (BN / 4)) * 4;
+
+        const int inner_row_B = tile * BK + local_row_B;
+        const int inner_col_B = blockIdx.x * BN + local_col_B;
+        
+        const int B_start_idx_four = batch * shared_dim * B_cols + inner_row_B * B_cols + inner_col_B; // for vec 4
+
+        if (inner_row_B < shared_dim && inner_col_B + 3 < B_cols &&
+            B_start_idx_four % 4 == 0) {
+            reinterpret_cast<float4 *>(&tile_shared_mem_B[local_row_B][local_col_B])[0] =
+                reinterpret_cast<float4 *>(&B[B_start_idx_four])[0];
         } else {
-            tile_shared_mem_B[threadIdx.y][threadIdx.x] = 0;
+            for (int offset = 0; offset < 4; ++offset) {
+                if (inner_row_B < shared_dim && inner_col_B + offset < B_cols) {
+                    tile_shared_mem_B[local_row_B][local_col_B + offset] =
+                        B[B_start_idx_four + offset];
+                } else {
+                    tile_shared_mem_B[local_row_B][local_col_B + offset] = 0.0f;
+                }
+            }
         }
+
 
         __syncthreads();
 
-        for (int k_tile = 0; k_tile < blockDim.x; k_tile++) {
-            value += tile_shared_mem_A[threadIdx.y][k_tile] * tile_shared_mem_B[k_tile][threadIdx.x];
-        }
-        __syncthreads();
+        for (int dotIdx = 0; dotIdx < BK; dotIdx++) {
+            for (int resIdx = 0; resIdx < TM; resIdx++) {
+                reg_A[resIdx] = tile_shared_mem_A[dotIdx][thread_row * TM + resIdx];
+            }
 
+            for (int resIdx = 0; resIdx < TN; resIdx++) {
+                reg_B[resIdx] = tile_shared_mem_B[dotIdx][thread_col * TN + resIdx];
+            }
+
+            for (int rowIdx = 0; rowIdx < TM; rowIdx++) {
+                for (int colIdx = 0; colIdx < TN; colIdx++) {
+                    values[rowIdx][colIdx] += reg_A[rowIdx] * reg_B[colIdx];
+                }
+            }
+        }
+
+        __syncthreads();
     }
 
-    if (batch < batched_dim && row < A_rows && col < B_cols) {
-        C[batch * B_cols * A_rows + row*B_cols + col] = value;
+    for (int rowIdx = 0; rowIdx < TM; rowIdx++) {
+        for (int colIdx = 0; colIdx < TN; colIdx += 4) {
+            const int row = blockIdx.y * BM + thread_row * TM + rowIdx;
+            const int col = blockIdx.x * BN + thread_col * TN + colIdx;
+            const int C_start_idx_four = batch * A_rows * B_cols + row * B_cols + col;
+
+            if (row < A_rows && col + 3 < B_cols && C_start_idx_four % 4 == 0) {
+                float4 result = {
+                    alpha * values[rowIdx][colIdx + 0],
+                    alpha * values[rowIdx][colIdx + 1],
+                    alpha * values[rowIdx][colIdx + 2],
+                    alpha * values[rowIdx][colIdx + 3]
+                };
+
+                if (beta != 0.0f) {
+                    const float4 old = reinterpret_cast<float4 *>(&C[C_start_idx_four])[0];
+                    result.x += beta * old.x;
+                    result.y += beta * old.y;
+                    result.z += beta * old.z;
+                    result.w += beta * old.w;
+                }
+
+                reinterpret_cast<float4 *>(&C[C_start_idx_four])[0] = result;
+            } else if (row < A_rows) {
+                for (int offset = 0; offset < 4 && col + offset < B_cols; ++offset) {
+                    float result = alpha * values[rowIdx][colIdx + offset];
+                    if (beta != 0.0f) {
+                        result += beta * C[C_start_idx_four + offset];
+                    }
+                    C[C_start_idx_four + offset] = result;
+                }
+            }
+        }
     }
 }
 
-void launch_batched_mat_mul_kernel(float* A, float* B, float* C, int batched_dim, int A_rows, int shared_dim, int B_cols) {
+template<int BM, int BN, int BK, int TM, int TN>
+void launch_batched_mat_mul_config(float* A, float* B, float* C, int batch_dim, int A_rows, int shared_dim, int B_cols, float alpha, float beta) {
 
-    dim3 threadsPerBlock(THREADS_PER_BLOCK_MM, THREADS_PER_BLOCK_MM);
-    dim3 numBlocks(cuda::ceil_div(B_cols, TILE_WIDTH), cuda::ceil_div(A_rows, TILE_WIDTH), batched_dim);
+    dim3 threadsPerBlock(BN / TN, BM / TM);
+    dim3 numBlocks(cuda::ceil_div(B_cols, BN), cuda::ceil_div(A_rows, BM), batch_dim);
 
-    batched_mat_mul_kernel<<<numBlocks, threadsPerBlock>>>(A, B, C, batched_dim, A_rows, shared_dim, B_cols);
+    batched_mat_mul_kernel<BM, BN, BK, TM, TN><<<numBlocks, threadsPerBlock>>>(
+        alpha, A, B, beta, C, A_rows, shared_dim, B_cols);
+}
+
+void launch_batched_mat_mul_kernel(float* A, float* B, float* C, int batch_dim, int A_rows, int shared_dim, int B_cols, float alpha, float beta) {
+
+    // values from scripts/autotune_gemm.py
+    if (A_rows <= 64 && B_cols <= 64 && shared_dim <= 64) {
+        launch_batched_mat_mul_config<64, 64, 8, 8, 4>(A, B, C, batch_dim, A_rows, shared_dim, B_cols, alpha, beta);
+    } else if (A_rows <= 128 && B_cols <= 128 && shared_dim <= 128) {
+        launch_batched_mat_mul_config<32, 32, 16, 2, 4>(A, B, C, batch_dim, A_rows, shared_dim, B_cols, alpha, beta);
+    } else if (A_rows <= 512 && B_cols <= 512 && shared_dim <= 512) {
+        launch_batched_mat_mul_config<64, 64, 8, 8, 4>(A, B, C, batch_dim, A_rows, shared_dim, B_cols, alpha, beta);
+    } else if (A_rows <= 1024 && B_cols <= 1024 && shared_dim <= 1024) {
+        launch_batched_mat_mul_config<128, 128, 4, 16, 8>(A, B, C, batch_dim, A_rows, shared_dim, B_cols, alpha, beta);
+    } else {
+        launch_batched_mat_mul_config<128, 128, 4, 16, 8>(A, B, C, batch_dim, A_rows, shared_dim, B_cols, alpha, beta);
+    }
 
     CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
-
 }
 
-
+void launch_batched_mat_mul_kernel(float* A, float* B, float* C, int batch_dim, int A_rows, int shared_dim, int B_cols) {
+    launch_batched_mat_mul_kernel(A, B, C, batch_dim, A_rows, shared_dim, B_cols, 1.0f, 0.0f);
+}

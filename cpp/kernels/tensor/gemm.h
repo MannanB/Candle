@@ -10,4 +10,4 @@
 
 #include "utils.h"
 
-void launch_mat_mul_kernel(float* A, float* B, float* C, int A_rows, int shared_dim, int B_cols);
+void launch_mat_mul_kernel(float* A, float* B, float* C, int A_rows, int shared_dim, int B_cols, float alpha, float beta);
