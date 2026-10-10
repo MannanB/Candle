@@ -1,14 +1,26 @@
 #include "autograd.h"
 #include "kernels/activation/sigmoid_bwd.h"
 
-MatMulGradFn::MatMulGradFn(Tensor left, Tensor right) {
+MatMulGradFn::MatMulGradFn(Tensor left, Tensor right, bool transpose_left, bool transpose_right)
+    : transpose_left(transpose_left), transpose_right(transpose_right) {
     parents = {left, right};
 }
 
 std::vector<Tensor> MatMulGradFn::backward(const Tensor& output_gradient) {
-    // TODO: add tranpose flag to matmul
-    Tensor dLdLeft = output_gradient.matmul(parents[1].transpose(1, 2)).sum(0);
-    Tensor dLdRight = parents[0].transpose(0, 1).matmul(output_gradient);
+    Tensor dLdLeft;
+    Tensor dLdRight;
+
+    if (transpose_left) {
+        dLdLeft = parents[1].matmul(output_gradient, transpose_right, true).sum(0);
+    } else {
+        dLdLeft = output_gradient.matmul(parents[1], false, !transpose_right).sum(0);
+    }
+
+    if (transpose_right) {
+        dLdRight = output_gradient.matmul(parents[0], true, transpose_left);
+    } else {
+        dLdRight = parents[0].matmul(output_gradient, !transpose_left, false);
+    }
     return {dLdLeft, dLdRight};
 }
 

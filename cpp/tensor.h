@@ -45,12 +45,12 @@ struct Tensor {
     static Tensor ones(int* shape, int ndim);
     static Tensor zeroes(int* shape, int ndim);
 
-    static Tensor matmul(const Tensor& a, const Tensor& b);
+    static Tensor matmul(const Tensor& a, const Tensor& b, bool transpose_a = false, bool transpose_b = false);
 
     Tensor operator+(const Tensor& other) const;
     Tensor operator-(const Tensor& other) const;
     Tensor operator*(float scalar) const;
-    Tensor matmul(const Tensor& other) const;
+    Tensor matmul(const Tensor& other, bool transpose_self = false, bool transpose_other = false) const;
     void inplace_add(const Tensor& other, float self_factor = 1.0f, float other_factor = 1.0f);
 
     void backward();

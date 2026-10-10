@@ -11,3 +11,6 @@
 #include "utils.h"
 
 void launch_batched_mat_mul_kernel(float* A, float* B, float* C, int batch_dim, int A_rows, int shared_dim, int B_cols);
+void launch_batched_mat_mul_kernel(float* A, float* B, float* C, int batch_dim, int A_rows, int shared_dim, int B_cols, bool transpose_A, bool transpose_B);
+void launch_batched_mat_mul_kernel(float* A, float* B, float* C, int batch_dim, int A_rows, int shared_dim, int B_cols, float alpha, float beta);
+void launch_batched_mat_mul_kernel(float* A, float* B, float* C, int batch_dim, int A_rows, int shared_dim, int B_cols, bool transpose_A, bool transpose_B, float alpha, float beta);

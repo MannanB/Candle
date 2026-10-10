@@ -409,15 +409,20 @@ Tensor Tensor::unsqueeze() const {
 }
 
 
-Tensor Tensor::matmul(const Tensor& a, const Tensor& b) {
+Tensor Tensor::matmul(const Tensor& a, const Tensor& b, bool transpose_a, bool transpose_b) {
     if (a.ndim < 2 || b.ndim < 1) {
         throw std::invalid_argument("Matmul requires a matrix on the left");
     }
+    if (transpose_b && b.ndim < 2) {
+        throw std::invalid_argument("Cannot transpose a vector in matmul");
+    }
 
-    const int a_rows = a.shape[a.ndim - 2];
-    const int a_cols = a.shape[a.ndim - 1];
-    int b_rows = 1;
-    int b_cols = 1;
+    const int a_rows = transpose_a ? a.shape[a.ndim - 1] : a.shape[a.ndim - 2];
+    const int a_cols = transpose_a ? a.shape[a.ndim - 2] : a.shape[a.ndim - 1];
+    int b_rows = b.ndim == 1 ? b.shape[0] :
+        (transpose_b ? b.shape[b.ndim - 1] : b.shape[b.ndim - 2]);
+    int b_cols = b.ndim == 1 ? 1 :
+        (transpose_b ? b.shape[b.ndim - 2] : b.shape[b.ndim - 1]);
     int batch_size = 1;
     int out_ndim = 2;
     int* new_shape = nullptr;
@@ -426,9 +431,6 @@ Tensor Tensor::matmul(const Tensor& a, const Tensor& b) {
 
     if (batched) {
         if (b.ndim == a.ndim) {
-            b_rows = b.shape[b.ndim - 2];
-            b_cols = b.shape[b.ndim - 1];
-
             for (int d = 0; d < a.ndim - 2; ++d) {
                 if (a.shape[d] != b.shape[d]) {
                     throw std::invalid_argument("Batch dimensions must match");
@@ -436,7 +438,11 @@ Tensor Tensor::matmul(const Tensor& a, const Tensor& b) {
                 batch_size *= a.shape[d];
             }
         } else if (b.ndim == a.ndim - 1) {
+            if (transpose_b) {
+                throw std::invalid_argument("Cannot transpose batched vectors in matmul");
+            }
             b_rows = b.shape[b.ndim - 1];
+            b_cols = 1;
 
             for (int d = 0; d < b.ndim - 1; ++d) {
                 if (a.shape[d] != b.shape[d]) {
@@ -458,9 +464,7 @@ Tensor Tensor::matmul(const Tensor& a, const Tensor& b) {
     } else if (b.ndim == 1) {
         b_rows = b.shape[0];
         new_shape = new int[2]{a_rows, 1};
-    } else if (a_cols == b.shape[b.ndim - 2]) {
-        b_rows = b.shape[b.ndim - 2];
-        b_cols = b.shape[b.ndim - 1];
+    } else if (a_cols == b_rows) {
         broadcast = b.ndim > 2;
         out_ndim = b.ndim;
         new_shape = new int[out_ndim];
@@ -471,7 +475,7 @@ Tensor Tensor::matmul(const Tensor& a, const Tensor& b) {
         }
         new_shape[out_ndim - 2] = a_rows;
         new_shape[out_ndim - 1] = b_cols;
-    } else if (a_cols == b.shape[b.ndim - 1]) {
+    } else if (!transpose_b && a_cols == b.shape[b.ndim - 1]) {
         b_rows = b.shape[b.ndim - 1];
         broadcast = true;
         out_ndim = b.ndim + 1;
@@ -501,17 +505,17 @@ Tensor Tensor::matmul(const Tensor& a, const Tensor& b) {
     if (batched) {
         launch_batched_mat_mul_kernel(
             a.tensor_data->data, b.tensor_data->data, out.tensor_data->data,
-            batch_size, a_rows, a_cols,  b_cols
+            batch_size, a_rows, a_cols, b_cols, transpose_a, transpose_b
         );
     } else if (broadcast) {
         launch_broadcast_mat_mul_kernel(
             a.tensor_data->data, b.tensor_data->data, out.tensor_data->data,
-            batch_size, a_rows, a_cols, b_cols
+            batch_size, a_rows, a_cols, b_cols, transpose_a, transpose_b
         );
     } else {
         launch_mat_mul_kernel(
             a.tensor_data->data, b.tensor_data->data, out.tensor_data->data,
-            a_rows, a_cols, b_cols, 1.0f, 0.0f
+            a_rows, a_cols, b_cols, transpose_a, transpose_b, 1.0f, 0.0f
         );
     }
 
@@ -520,7 +524,7 @@ Tensor Tensor::matmul(const Tensor& a, const Tensor& b) {
         if (b.requires_grad) {b.init_grad();}
         out.requires_grad = true;
         out.init_grad();
-        out.grad_fn = std::make_shared<MatMulGradFn>(a, b);
+        out.grad_fn = std::make_shared<MatMulGradFn>(a, b, transpose_a, transpose_b);
     }
 
     return out;
@@ -538,8 +542,8 @@ Tensor Tensor::operator*(float scalar) const {
     return scalar_multiply(*this, scalar);
 }
 
-Tensor Tensor::matmul(const Tensor& other) const {
-    return matmul(*this, other);
+Tensor Tensor::matmul(const Tensor& other, bool transpose_self, bool transpose_other) const {
+    return matmul(*this, other, transpose_self, transpose_other);
 }
 
 void Tensor::inplace_add(const Tensor& other, float self_factor, float other_factor) {

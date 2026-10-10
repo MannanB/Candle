@@ -14,7 +14,9 @@ struct GradFn {
 // probably shouldnt do that 
 
 struct MatMulGradFn : GradFn {
-    MatMulGradFn(Tensor left, Tensor right);
+    bool transpose_left;
+    bool transpose_right;
+    MatMulGradFn(Tensor left, Tensor right, bool transpose_left, bool transpose_right);
     std::vector<Tensor> backward(const Tensor& output_gradient);
 };
 

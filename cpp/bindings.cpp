@@ -374,8 +374,10 @@ PYBIND11_MODULE(_candle, module, py::mod_gil_not_used()) {
         .def("unsqueeze", &Tensor::unsqueeze)
         .def(
             "matmul",
-            py::overload_cast<const Tensor&>(&Tensor::matmul, py::const_),
-            py::arg("other")
+            py::overload_cast<const Tensor&, bool, bool>(&Tensor::matmul, py::const_),
+            py::arg("other"),
+            py::arg("transpose_self") = false,
+            py::arg("transpose_other") = false
         )
         .def("__repr__", &tensor_repr);
 
