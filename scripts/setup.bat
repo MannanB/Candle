@@ -14,7 +14,7 @@ call ".venv\Scripts\activate.bat"
 python -m pip install --upgrade pip
 if errorlevel 1 exit /b 1
 
-python -m pip install cmake ninja pybind11 numpy
+python -m pip install cmake ninja pybind11 numpy matplotlib
 if errorlevel 1 exit /b 1
 
 echo.

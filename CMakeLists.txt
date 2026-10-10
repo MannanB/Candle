@@ -80,6 +80,7 @@ target_include_directories(
 target_link_libraries(
     candle_profiler PRIVATE
     CUDA::cudart
+    CUDA::cublas
 )
 
 set_target_properties(

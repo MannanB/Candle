@@ -1,13 +1,14 @@
 #include "gemm.h"
 
-#define BM 128 // rows of C computed by a block
-#define BN 128 // cols of C computed by a block
-#define BK 8  // # of K elements loaded per iteration
-#define TM 8  // rows of C computed by a thread
-#define TN 8  // cols of C computed by a thread
+// #define BM 128 // rows of C computed by a block
+// #define BN 128 // cols of C computed by a block
+// #define BK 8  // # of K elements loaded per iteration
+// #define TM 8  // rows of C computed by a thread
+// #define TN 8  // cols of C computed by a thread
 
 // A -> M x K, B -> K x N, C -> M x N
 
+template<int BM, int BN, int BK, int TM, int TN>
 __global__ void mat_mul_kernel(float alpha, float* A, float* B, float beta, float* C, int A_rows, int shared_dim, int B_cols) {
     const int thread_row = threadIdx.y;
     const int thread_col = threadIdx.x;
@@ -109,11 +110,30 @@ __global__ void mat_mul_kernel(float alpha, float* A, float* B, float beta, floa
     }
 }
 
-void launch_mat_mul_kernel(float* A, float* B, float* C, int A_rows, int shared_dim, int B_cols) {
+template<int BM, int BN, int BK, int TM, int TN>
+void launch_mat_mul_config(float* A, float* B, float* C, int A_rows, int shared_dim, int B_cols) {
+
     dim3 threadsPerBlock(BN / TN, BM / TM);
     dim3 numBlocks(cuda::ceil_div(B_cols, BN), cuda::ceil_div(A_rows, BM));
 
-    mat_mul_kernel<<<numBlocks, threadsPerBlock>>>(1.0f, A, B, 0.0f, C, A_rows, shared_dim, B_cols);
+    mat_mul_kernel<BM, BN, BK, TM, TN><<<numBlocks, threadsPerBlock>>>(
+        1.0f, A, B, 0.0f, C, A_rows, shared_dim, B_cols);
+}
+
+void launch_mat_mul_kernel(float* A, float* B, float* C, int A_rows, int shared_dim, int B_cols) {
+
+    // values from scripts/autotune_gemm.py
+    if (A_rows <= 64 && B_cols <= 64 && shared_dim <= 64) {
+        launch_mat_mul_config<64, 64, 8, 8, 4>(A, B, C, A_rows, shared_dim, B_cols);
+    } else if (A_rows <= 128 && B_cols <= 128 && shared_dim <= 128) {
+        launch_mat_mul_config<32, 32, 16, 2, 4>(A, B, C, A_rows, shared_dim, B_cols);
+    } else if (A_rows <= 512 && B_cols <= 512 && shared_dim <= 512) {
+        launch_mat_mul_config<64, 64, 8, 8, 4>(A, B, C, A_rows, shared_dim, B_cols);
+    } else if (A_rows <= 1024 && B_cols <= 1024 && shared_dim <= 1024) {
+        launch_mat_mul_config<128, 128, 4, 16, 8>(A, B, C, A_rows, shared_dim, B_cols);
+    } else {
+        launch_mat_mul_config<128, 128, 4, 16, 8>(A, B, C, A_rows, shared_dim, B_cols);
+    }
 
     CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaDeviceSynchronize());

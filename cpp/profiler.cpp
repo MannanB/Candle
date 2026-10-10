@@ -1,4 +1,5 @@
 #include <cuda_runtime_api.h>
+#include <cublas_v2.h>
 
 #include <chrono>
 #include <climits>
@@ -53,6 +54,7 @@ constexpr const char* kKernelNames[] = {
     "gemm_2d_tile",
     "gemm_smem",
     "gemm_naive",
+    "cublas",
     "batched-gemm",
     "broadcast-gemm",
 };
@@ -61,6 +63,13 @@ void check_cuda(cudaError_t result, const char* operation) {
     if (result != cudaSuccess) {
         throw std::runtime_error(
             std::string(operation) + ": " + cudaGetErrorString(result));
+    }
+}
+
+void check_cublas(cublasStatus_t result, const char* operation) {
+    if (result != CUBLAS_STATUS_SUCCESS) {
+        throw std::runtime_error(
+            std::string(operation) + " failed with status " + std::to_string(result));
     }
 }
 
@@ -353,7 +362,7 @@ PreparedKernel prepare_kernel(const Options& options) {
                          std::to_string(options.rows) + ", cols=" +
                          std::to_string(options.cols) + ", suffix=" +
                          std::to_string(options.suffix);
-    } else if (name == "gemm" || name == "gemm_vectorized" || name == "gemm_2d_tile" || name == "gemm_smem" || name == "gemm_naive" ||
+    } else if (name == "gemm" || name == "gemm_vectorized" || name == "gemm_2d_tile" || name == "gemm_smem" || name == "gemm_naive" || name == "cublas" ||
                name == "gemm-smem" || name == "gemm-naive") {
         const std::size_t a_count = checked_product(
             {static_cast<std::size_t>(options.rows), static_cast<std::size_t>(options.inner)});
@@ -364,7 +373,22 @@ PreparedKernel prepare_kernel(const Options& options) {
         float* a = prepared.allocations.allocate(a_count);
         float* b = prepared.allocations.allocate(b_count);
         float* output = prepared.allocations.allocate(output_count, false);
-        if (name == "gemm_vectorized") {
+        if (name == "cublas") {
+            cublasHandle_t handle = nullptr;
+            check_cublas(cublasCreate(&handle), "cublasCreate");
+            prepared.launch = [=] {
+                const float alpha = 1.0f;
+                const float beta = 0.0f;
+                // Row-major C=A*B is column-major C^T=B^T*A^T.
+                check_cublas(
+                    cublasSgemm(
+                        handle, CUBLAS_OP_N, CUBLAS_OP_N,
+                        options.cols, options.rows, options.inner,
+                        &alpha, b, options.cols, a, options.inner,
+                        &beta, output, options.cols),
+                    "cublasSgemm");
+            };
+        } else if (name == "gemm_vectorized") {
             prepared.launch = [=] {
                 launch_mat_mul_vectorized_kernel(a, b, output, options.rows, options.inner, options.cols);
             };

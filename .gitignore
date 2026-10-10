@@ -1,8 +1,10 @@
 build/
 .venv/
 python/mnist/data
+benchmark_results/
 __pycache__
 .vscode/
 *.bin
 *.pyc
 *.ncu-rep
+gifs/

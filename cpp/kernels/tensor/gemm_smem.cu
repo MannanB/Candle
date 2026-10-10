@@ -5,9 +5,7 @@ namespace {
 constexpr int kTileWidth = 16;
 
 // Classic shared-memory tiled GEMM: one thread computes one output element.
-__global__ void mat_mul_smem_kernel(
-    const float* A, const float* B, float* C,
-    int A_rows, int shared_dim, int B_cols) {
+__global__ void mat_mul_smem_kernel(const float* A, const float* B, float* C, int A_rows, int shared_dim, int B_cols) {
     const int row = blockIdx.y * kTileWidth + threadIdx.y;
     const int col = blockIdx.x * kTileWidth + threadIdx.x;
 
