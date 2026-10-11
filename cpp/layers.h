@@ -3,7 +3,6 @@
 
 
 class Layer {
-    // oop or something its 12:30 am
 public:
     virtual std::vector<Tensor*> get_params()=0;
 };

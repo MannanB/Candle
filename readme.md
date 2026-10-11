@@ -15,19 +15,21 @@ TODOs
 
 - [x] Simple kernels (add, mm, transpose) 
     - [x] simple gemm (batched,broadcast)
-    - [ ] simple gemv 
-    - [ ] add tranpose flag to gemm
+    - [x] add tranpose flag to gemm
 - [x] Simple python bindings
-- [ ] Better matmul (mma, tmem / tensor core usage, coarse)
+- [x] Better matmul (coarse)
     - [x] batched matmul / normal pytorch style matmul dimensions
     - [ ] fused forward kernels (activations)
     - [ ] fused backward kernels (add batch reduction)
+    - [ ] use alpha/beta and adapt matmul bwd for that
 - [x] Separate native C++/CUDA code from the Python API
 - [ ] Python-side type hints / QOL
 - [ ] half precision
 - [ ] Optimizers
     - [x] SGD
-    - [ ] Adam
+    - [x] SGD /w momentum
+    - [x] AdaGrad/RMSProp
+    - [x] Adam
     - [ ] AdamW
 - [x] simple autograd
 - [ ] separate tensors from host mem / device mem
@@ -38,8 +40,3 @@ TODOs
     - [ ] image processing kernels?
 - [ ] tiny transformer model
 - [ ] Flash attention
-
-
-# matmul benches
-
-1. 371.94 GFLOP/s
