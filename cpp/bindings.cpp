@@ -20,6 +20,23 @@ namespace py = pybind11;
 
 namespace {
 
+template <typename OptimizerType>
+py::class_<OptimizerType> bind_optimizer(py::module_& module, const char* name) {
+    return py::class_<OptimizerType>(module, name)
+        .def("add_parameter", &OptimizerType::add_parameter,
+             py::arg("parameter"), py::keep_alive<1, 2>())
+        .def("add_layer", [](OptimizerType& optimizer, Layer& layer) {
+            // Register through the concrete optimizer to initialize its state.
+            for (Tensor* parameter : layer.get_params()) {
+                optimizer.add_parameter(*parameter);
+            }
+        }, py::arg("layer"), py::keep_alive<1, 2>())
+        .def("init_grad", &OptimizerType::init_grad)
+        .def("zero_grad", &OptimizerType::zero_grad)
+        .def("step", &OptimizerType::step)
+        .def_readwrite("lr", &OptimizerType::lr);
+}
+
 int flatten_nested_list(const py::handle& object, float* output, int index) {
     if (py::isinstance<py::list>(object)) {
         for (const py::handle& item : object) {
@@ -397,7 +414,9 @@ PYBIND11_MODULE(_candle, module, py::mod_gil_not_used()) {
             &Losses::mse,
             py::arg("prediction"),
             py::arg("target")
-        );
+        )
+        .def_static("bce", &Losses::bce, py::arg("prediction"), py::arg("target"))
+        .def_static("cce", &Losses::cce, py::arg("prediction"), py::arg("target"), py::arg("dim") = 1);
 
     py::class_<Layer>(module, "Layer");
 
@@ -419,6 +438,28 @@ PYBIND11_MODULE(_candle, module, py::mod_gil_not_used()) {
         .def("zero_grad", &SGD::zero_grad)
         .def("step", &SGD::step)
         .def_readwrite("lr", &SGD::lr);
+
+    bind_optimizer<SGDMomentum>(module, "SGDMomentum")
+        .def(py::init<float, float>(), py::arg("lr"), py::arg("momentum"))
+        .def_readwrite("momentum", &SGDMomentum::momentum);
+
+    bind_optimizer<AdaGrad>(module, "AdaGrad")
+        .def(py::init<float, float>(), py::arg("lr"), py::arg("eps") = 0.0001f)
+        .def_readwrite("eps", &AdaGrad::eps);
+
+    bind_optimizer<RMSProp>(module, "RMSProp")
+        .def(py::init<float, float, float>(), py::arg("lr"), py::arg("beta"),
+             py::arg("eps") = 0.0001f)
+        .def_readwrite("beta", &RMSProp::beta)
+        .def_readwrite("eps", &RMSProp::eps);
+
+    bind_optimizer<Adam>(module, "Adam")
+        .def(py::init<float, float, float, float>(), py::arg("lr"),
+             py::arg("beta1"), py::arg("beta2"), py::arg("eps") = 0.0001f)
+        .def_readwrite("beta1", &Adam::beta1)
+        .def_readwrite("beta2", &Adam::beta2)
+        .def_readwrite("eps", &Adam::eps)
+        .def_readonly("steps", &Adam::steps);
 
     py::class_<Linear, Layer>(module, "Linear")
         .def(

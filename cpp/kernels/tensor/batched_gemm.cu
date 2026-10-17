@@ -23,7 +23,7 @@ __global__ void batched_mat_mul_kernel(float alpha, float* A, float* B, float be
     float reg_B[TN];
 
     const int tid = threadIdx.y * blockDim.x + threadIdx.x; // y*16+x
-    const int num_threads = blockDim.x * blockDim.y; // 16 * 16 = 256
+    // const int num_threads = blockDim.x * blockDim.y; // 16 * 16 = 256
 
     for (int tile = 0; tile < num_tiles; tile++) {
         // we are trying to make a 128x128 block

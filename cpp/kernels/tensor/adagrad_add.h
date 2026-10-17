@@ -11,3 +11,5 @@
 #include "utils.h"
 
 void launch_adagrad_add_kernel(float* W, float* grad, float* vel, float lr, float eps, int size);
+void launch_adagrad_add_kernel(float* W, float* grad, float* vel, float lr, float eps, int size,
+                              float momentum_correction, float velocity_correction);

@@ -3,6 +3,8 @@
 #include <stdexcept>
 
 #include "kernels/loss/mse.h"
+#include "kernels/loss/bce.h"
+#include "kernels/loss/cce.h"
 #include "autograd.h"
 
 Tensor Losses::mse(const Tensor& prediction, const Tensor& target) {
@@ -33,5 +35,60 @@ Tensor Losses::mse(const Tensor& prediction, const Tensor& target) {
         out.grad_fn = std::make_shared<MSEGradFn>(prediction, target, prediction.tensor_data->size);
     }
 
+    return out;
+}
+
+Tensor Losses::bce(const Tensor& prediction, const Tensor& target) {
+    if (prediction.ndim != target.ndim || prediction.tensor_data->size == 0) {
+        throw std::invalid_argument("BCE inputs must have the same nonempty shape");
+    }
+    for (int d = 0; d < prediction.ndim; ++d) {
+        if (prediction.shape[d] != target.shape[d]) {
+            throw std::invalid_argument("BCE inputs must have the same shape");
+        }
+    }
+
+    Tensor out(1, new int[0], 0);
+    launch_bce_kernel(prediction.tensor_data->data, target.tensor_data->data,
+                      out.tensor_data->data, prediction.tensor_data->size);
+    if (prediction.requires_grad || target.requires_grad) {
+        if (prediction.requires_grad) {prediction.init_grad();}
+        if (target.requires_grad) {target.init_grad();}
+        out.requires_grad = true;
+        out.init_grad();
+        out.grad_fn = std::make_shared<BCEGradFn>(prediction, target);
+    }
+    return out;
+}
+
+Tensor Losses::cce(const Tensor& prediction, const Tensor& target, int dim) {
+    if (dim < 0 || dim >= prediction.ndim) {
+        throw std::invalid_argument("CCE class dimension is out of range");
+    }
+    if (prediction.ndim != target.ndim || prediction.tensor_data->size == 0) {
+        throw std::invalid_argument("CCE inputs must have the same nonempty shape");
+    }
+    for (int d = 0; d < prediction.ndim; ++d) {
+        if (prediction.shape[d] != target.shape[d]) {
+            throw std::invalid_argument("CCE inputs must have the same shape");
+        }
+    }
+
+    int prefix_dim = 1;
+    int reduce_dim = prediction.shape[dim];
+    int suffix_dim = 1;
+    for (int d = 0; d < dim; ++d) {prefix_dim *= prediction.shape[d];}
+    for (int d = dim + 1; d < prediction.ndim; ++d) {suffix_dim *= prediction.shape[d];}
+
+    Tensor out(1, new int[0], 0);
+    launch_cce_kernel(prediction.tensor_data->data, target.tensor_data->data,
+                      out.tensor_data->data, prefix_dim, reduce_dim, suffix_dim);
+    if (prediction.requires_grad || target.requires_grad) {
+        if (prediction.requires_grad) {prediction.init_grad();}
+        if (target.requires_grad) {target.init_grad();}
+        out.requires_grad = true;
+        out.init_grad();
+        out.grad_fn = std::make_shared<CCEGradFn>(prediction, target, prefix_dim * suffix_dim);
+    }
     return out;
 }

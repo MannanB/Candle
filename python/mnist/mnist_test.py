@@ -33,14 +33,10 @@ x_train, y_train = balance(x_train, y_train, TARGET_NUM, .6)
 x_test, y_test = balance(x_test, y_test, TARGET_NUM, .6)
 
 class BinaryClassifier:
-    def __init__(self, load_path=None):
-        if load_path:
-            self.l1 = candle.Linear.load(load_path+"/l1.bin")
-            self.l2 = candle.Linear.load(load_path+"/l2.bin")
-        else:
-            self.l1 = candle.Linear(INP_SIZE, 64)
-            self.l2 = candle.Linear(64, 16)
-            self.l3 = candle.Linear(16, 1)
+    def __init__(self):
+        self.l1 = candle.Linear(INP_SIZE, 64)
+        self.l2 = candle.Linear(64, 16)
+        self.l3 = candle.Linear(16, 1)
 
     def forward(self, x):
         x = self.l1.forward(x)
@@ -59,12 +55,13 @@ class BinaryClassifier:
 
 
 classifier = BinaryClassifier()
-optimizer = candle.SGD(lr=LR)
+optimizer = candle.AdaGrad(lr=LR)
 
 # will need to fix this with candle module or something
 # prob just be in python
 optimizer.add_layer(classifier.l1)
 optimizer.add_layer(classifier.l2)
+optimizer.add_layer(classifier.l3)
 
 optimizer.init_grad()
 

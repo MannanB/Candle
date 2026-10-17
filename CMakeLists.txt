@@ -16,21 +16,23 @@ find_package(CUDAToolkit REQUIRED)
 set(
     CANDLE_KERNEL_SOURCES
     cpp/kernels/tensor/add.cu
+    cpp/kernels/tensor/adagrad_add.cu
     cpp/kernels/activation/relu.cu
     cpp/kernels/activation/relu_bwd.cu
     cpp/kernels/activation/sigmoid.cu
     cpp/kernels/activation/sigmoid_bwd.cu
     cpp/kernels/loss/mse.cu
     cpp/kernels/loss/mse_bwd.cu
+    cpp/kernels/loss/bce.cu
+    cpp/kernels/loss/bce_bwd.cu
+    cpp/kernels/loss/cce.cu
+    cpp/kernels/loss/cce_bwd.cu
     cpp/kernels/tensor/scalar_multiply.cu
     cpp/kernels/activation/softmax.cu
+    cpp/kernels/activation/softmax_bwd.cu
     cpp/kernels/tensor/broadcast_add.cu
     cpp/kernels/tensor/transpose.cu
     cpp/kernels/tensor/gemm.cu
-    cpp/kernels/tensor/gemm_vectorized.cu
-    cpp/kernels/tensor/gemm_2d_tile.cu
-    cpp/kernels/tensor/gemm_smem.cu
-    cpp/kernels/tensor/gemm_naive.cu
     cpp/kernels/tensor/sum_reduce.cu
     cpp/kernels/tensor/batched_gemm.cu
     cpp/kernels/tensor/broadcast_gemm.cu

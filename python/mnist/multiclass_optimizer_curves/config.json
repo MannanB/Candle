@@ -1,0 +1,32 @@
+{
+  "epochs": 6,
+  "batch_size": 512,
+  "lr": 0.05,
+  "lr_decay": 0.99,
+  "seed": 42,
+  "optimizers": [
+    "SGD",
+    "SGDMomentum",
+    "AdaGrad",
+    "RMSProp",
+    "Adam"
+  ],
+  "sgd_lr": null,
+  "sgdmomentum_lr": null,
+  "adagrad_lr": null,
+  "rmsprop_lr": null,
+  "adam_lr": null,
+  "train_limit": null,
+  "test_limit": null,
+  "data_dir": "C:\\Users\\manna\\Documents\\AI\\Candle\\python\\mnist\\data",
+  "output_dir": "C:\\Users\\manna\\Documents\\AI\\Candle\\python\\mnist\\multiclass_optimizer_curves",
+  "train_examples": 60000,
+  "test_examples": 10000,
+  "architecture": [
+    784,
+    64,
+    16,
+    10
+  ],
+  "loss": "CCE"
+}

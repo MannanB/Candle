@@ -1,4 +1,5 @@
 #include "optimizers.h"
+#include <cmath>
 #include "kernels/tensor/add.h"
 #include "kernels/tensor/adagrad_add.h"
 
@@ -8,7 +9,7 @@ void Optimizer::add_parameter(Tensor& param) {
 
 void Optimizer::add_layer(Layer& layer) {
     for (Tensor* param: layer.get_params()) {
-        add_parameter(param);
+        add_parameter(*param);
     }
 }
 
@@ -40,7 +41,7 @@ void SGD::step() {
 }
 
 
-SGDMomentum : SGDMomentum(float lr, float momentum) : lr(lr), momentum(momentum) {}
+SGDMomentum::SGDMomentum(float lr, float momentum) : lr(lr), momentum(momentum) {}
 
 void SGDMomentum::add_parameter(Tensor& param) {
     parameters.push_back(&param);
@@ -49,15 +50,15 @@ void SGDMomentum::add_parameter(Tensor& param) {
     for (int d = 0; d < param.ndim; d++) {
         shape[d] = param.shape[d];
     }
-    Tensor* vel = std::make_shared<Tensor>(Tensor::zeroes(shape, param.ndim));
+    auto vel = std::make_shared<Tensor>(Tensor::zeroes(shape, param.ndim));
 
     velocities.push_back(vel);
 }
 
 void SGDMomentum::step() {
-    for (int i=0; i<vel.size(); i++) {
+    for (std::size_t i = 0; i < velocities.size(); ++i) {
         Tensor* param = parameters[i];
-        Tensor* vel = velocities[i];
+        Tensor* vel = velocities[i].get();
         launch_vec_add_kernel(
             vel->tensor_data->data,
             param->grad->tensor_data->data,
@@ -67,7 +68,7 @@ void SGDMomentum::step() {
             vel->tensor_data->size
         ); // v_t+1 = p*v_t - n*g(w_t)
 
-        launch_adagrad_add_kernel(
+        launch_vec_add_kernel(
             param->tensor_data->data,
             vel->tensor_data->data,
             param->tensor_data->data,
@@ -78,7 +79,7 @@ void SGDMomentum::step() {
     }
 }
 
-AdaGrad : AdaGrad(float lr, float eps) : lr(lr), eps(eps) {}
+AdaGrad::AdaGrad(float lr, float eps) : lr(lr), eps(eps) {}
 
 void AdaGrad::add_parameter(Tensor& param) {
     parameters.push_back(&param);
@@ -87,15 +88,15 @@ void AdaGrad::add_parameter(Tensor& param) {
     for (int d = 0; d < param.ndim; d++) {
         shape[d] = param.shape[d];
     }
-    Tensor* vel = std::make_shared<Tensor>(Tensor::zeroes(shape, param.ndim));
+    auto vel = std::make_shared<Tensor>(Tensor::zeroes(shape, param.ndim));
 
     velocities.push_back(vel);
 }
 
 void AdaGrad::step() {
-    for (int i=0; i<vel.size(); i++) {
+    for (std::size_t i = 0; i < velocities.size(); ++i) {
         Tensor* param = parameters[i];
-        Tensor* vel = velocities[i];
+        Tensor* vel = velocities[i].get();
         launch_vec_add_kernel(
             vel->tensor_data->data,
             param->grad->tensor_data->data,
@@ -117,7 +118,7 @@ void AdaGrad::step() {
     }
 }
 
-RMSProp : RMSProp(float lr, float beta, float eps) : lr(lr), beta(beta), eps(eps) {}
+RMSProp::RMSProp(float lr, float beta, float eps) : lr(lr), beta(beta), eps(eps) {}
 
 void RMSProp::add_parameter(Tensor& param) {
     parameters.push_back(&param);
@@ -126,15 +127,15 @@ void RMSProp::add_parameter(Tensor& param) {
     for (int d = 0; d < param.ndim; d++) {
         shape[d] = param.shape[d];
     }
-    Tensor* vel = std::make_shared<Tensor>(Tensor::zeroes(shape, param.ndim));
+    auto vel = std::make_shared<Tensor>(Tensor::zeroes(shape, param.ndim));
 
     velocities.push_back(vel);
 }
 
 void RMSProp::step() {
-    for (int i=0; i<vel.size(); i++) {
+    for (std::size_t i = 0; i < velocities.size(); ++i) {
         Tensor* param = parameters[i];
-        Tensor* vel = velocities[i];
+        Tensor* vel = velocities[i].get();
         launch_vec_add_kernel(
             vel->tensor_data->data,
             param->grad->tensor_data->data,
@@ -157,7 +158,7 @@ void RMSProp::step() {
 }
 
 
-Adam : Adam(float lr, float beta1, float beta2, float eps) : lr(lr), beta1(beta1), beta2(beta2), eps(eps), steps(0) {}
+Adam::Adam(float lr, float beta1, float beta2, float eps) : lr(lr), beta1(beta1), beta2(beta2), eps(eps), steps(0) {}
 
 void Adam::add_parameter(Tensor& param) {
     parameters.push_back(&param);
@@ -166,34 +167,34 @@ void Adam::add_parameter(Tensor& param) {
     for (int d = 0; d < param.ndim; d++) {
         shape[d] = param.shape[d];
     }
-    Tensor* vel = std::make_shared<Tensor>(Tensor::zeroes(shape, param.ndim));
+    auto vel = std::make_shared<Tensor>(Tensor::zeroes(shape, param.ndim));
 
     int* shape2 = new int[param.ndim];
     for (int d = 0; d < param.ndim; d++) {
         shape2[d] = param.shape[d];
     }
-    Tensor* moment = std::make_shared<Tensor>(Tensor::zeroes(shape2, param.ndim));
+    auto moment = std::make_shared<Tensor>(Tensor::zeroes(shape2, param.ndim));
 
     velocities.push_back(vel);
-    momentums.push_back(moment)
+    momentums.push_back(moment);
 }
 
 void Adam::step() {
     steps++;
-    for (int i=0; i<vel.size(); i++) {
+    for (std::size_t i = 0; i < velocities.size(); ++i) {
         Tensor* param = parameters[i];
-        Tensor* vel = velocities[i];
-        Tensor* moment = momentums[i];
+        Tensor* vel = velocities[i].get();
+        Tensor* moment = momentums[i].get();
 
-        float momentum_correction = (1 - std::pow(beta2, steps)); // fact check this lol
-        float velocity_correction = (1 - std::pow(beta1, steps));
+        float momentum_correction = (1 - std::pow(beta1, steps));
+        float velocity_correction = (1 - std::pow(beta2, steps));
 
         launch_vec_add_kernel(
             vel->tensor_data->data,
             param->grad->tensor_data->data,
             vel->tensor_data->data,
-            beta1 / velocity_correction, // is this numerically unstable?
-            (1.0 - beta1) / velocity_correction,
+            beta2,
+            1.0 - beta2,
             true, // hacky
             vel->tensor_data->size
         ); // v_t+1 = B*v_t + (1-B)*g(w_t)^2
@@ -202,19 +203,21 @@ void Adam::step() {
             moment->tensor_data->data,
             param->grad->tensor_data->data,
             moment->tensor_data->data,
-            beta2 / momentum_correction, 
-            (1.0 - beta2) / momentum_correction,
+            beta1,
+            1.0 - beta1,
             false,
             moment->tensor_data->size
         ); // m_t+1 = B*m_t + (1-B)*g(w_t)
 
         launch_adagrad_add_kernel(
             param->tensor_data->data,
-            mo->tensor_data->data,
+            moment->tensor_data->data,
             vel->tensor_data->data,
             lr,
             eps,
-            vel->tensor_data->size
-        ); // w_t+1 = w_t - lr / (eps + sqrt(vel)) * g(w_t)
+            vel->tensor_data->size,
+            momentum_correction,
+            velocity_correction
+        ); // Apply bias correction without modifying the running averages.
     }
 }

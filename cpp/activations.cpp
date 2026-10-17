@@ -76,5 +76,11 @@ Tensor Activations::softmax(const Tensor& input, int dim) {
         reduce_dim,
         suffix_dim
     );
+    if (input.requires_grad) {
+        input.init_grad();
+        out.requires_grad = true;
+        out.init_grad();
+        out.grad_fn = std::make_shared<SoftmaxGradFn>(input, out.tensor_data, prefix_dim, reduce_dim, suffix_dim);
+    }
     return out;
 }

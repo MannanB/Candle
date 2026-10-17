@@ -34,13 +34,28 @@ struct ReluGradFn : GradFn {
 };
 
 struct SoftmaxGradFn : GradFn {
-    SoftmaxGradFn(Tensor input);
+    std::shared_ptr<TensorData> output;
+    int prefix_dim;
+    int reduce_dim;
+    int suffix_dim;
+    SoftmaxGradFn(Tensor input, std::shared_ptr<TensorData> output, int prefix_dim, int reduce_dim, int suffix_dim);
     std::vector<Tensor> backward(const Tensor& output_gradient);
 };
 
 struct MSEGradFn : GradFn {
     int N;
     MSEGradFn(Tensor pred, Tensor real, int N);
+    std::vector<Tensor> backward(const Tensor& output_gradient);
+};
+
+struct BCEGradFn : GradFn {
+    BCEGradFn(Tensor pred, Tensor real);
+    std::vector<Tensor> backward(const Tensor& output_gradient);
+};
+
+struct CCEGradFn : GradFn {
+    int count;
+    CCEGradFn(Tensor pred, Tensor real, int count);
     std::vector<Tensor> backward(const Tensor& output_gradient);
 };
 

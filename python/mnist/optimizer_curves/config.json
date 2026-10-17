@@ -1,0 +1,27 @@
+{
+  "epochs": 10,
+  "batch_size": 128,
+  "target": 2,
+  "positive_fraction": 0.6,
+  "lr": 0.05,
+  "lr_decay": 0.99,
+  "seed": 42,
+  "optimizers": [
+    "SGD",
+    "SGDMomentum",
+    "AdaGrad",
+    "RMSProp",
+    "Adam"
+  ],
+  "sgd_lr": null,
+  "sgdmomentum_lr": null,
+  "adagrad_lr": null,
+  "rmsprop_lr": null,
+  "adam_lr": null,
+  "train_limit": null,
+  "test_limit": null,
+  "data_dir": "C:\\Users\\manna\\Documents\\AI\\Candle\\python\\mnist\\data",
+  "output_dir": "C:\\Users\\manna\\Documents\\AI\\Candle\\python\\mnist\\optimizer_curves",
+  "train_examples": 9930,
+  "test_examples": 1720
+}
